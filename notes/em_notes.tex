@@ -1,0 +1,76 @@
+%!TEX program = xelatex
+
+% -----------------------------------------------------------------------
+% --------------------------------- PREAMBLE ----------------------------
+% -----------------------------------------------------------------------
+
+\documentclass[english]{scrartcl}
+
+\title{Notes: An EM Algorithm for Multiscale Urban Agglomerative Growth}
+\author{\emph{Phil Chodrow}}
+\date{\today}
+
+\usepackage{pc_writeup}
+\usepackage{pc_math}
+\usepackage[comma,authoryear]{natbib} 
+
+% -----------------------------------------------------------------------
+% --------------------------------- BODY --------------------------------
+% -----------------------------------------------------------------------
+
+\begin{document}
+\setkomafont{disposition}{\mdseries\rmfamily}
+
+\maketitle
+
+\section{Setup}
+	
+	Building on the work of \cite{Rybski2013}, we consider the following data and model. 
+	We have data $w = (w_0, w_1)$, where $w_0, w_1 \in \R^{n \times n}$ and $w_1 - w_0 \geq 0$. 
+	We view $w_1$ as a realization of a random variable $W_1$. 
+	To each cell $i$ of $W_1$, we assign a soft latent class $k$, such as $k \in \mathcal{K} = \{\text{rural, urban}\}$ that determines the probabilities of being settled under the correspoding modes. 
+	We have a parametric model for the probability of settlement under fixed class labels; that is, $p(W_{1,i} = w | K_i = k; \theta)$ is known in terms of some parameters $\theta$ to be 	inferred from data. 
+	We assume that the settlement of each cell is independent from that of all other cells, conditional on $K$ and $\theta$, so that 
+	\begin{equation*}
+		p(W_1 = w | K = k; \theta) = \prod_{i} p(W_{1,i} = w_i | K_i = k_i; \theta)
+	\end{equation*}
+
+	The model as specified is incomplete, since we don't have the joint distribution $p(W, K; \theta)$. 
+	We therefore assume a form for the marginal $p(K_i = k; \theta)$, which then completes the model. 
+
+\section{E-Step}
+
+	Following the standard EM ``formula,'' we assume a previous parameter estimate $\tilde{\theta}$ and ask what this parameter and the data tell us about the hidden variables. 
+	Formally, we compute the updated probability that cell $i$ has class $j$ via Bayes' rule, obtaining: 
+	\begin{align*}
+		Q_{ij} &\triangleq p(K_i = j | W_i = w_i; \tilde{\theta}) \\ 
+		 &= \frac{p(W_i = w_i | K_i = j; \tilde{\theta}) p(K_i = j; \tilde{\theta})}{\sum_{j \in \mathcal{K}} p(W_i = w_i | K_i = j; \tilde{\theta}) p(K_i = j; \tilde{\theta})}\;. 
+	\end{align*}
+
+\section{Solving the M-Step}
+	
+	In the M-step, we compute the expected model log-likelihood under $Q_{ij}$ and optimize new parameters: 
+
+	\begin{align*}
+		U(\theta | \tilde{\theta}) &= \E_{K|W = w; \tilde{\theta}}[\log p(W = w, K; \theta)] \\ 
+		&= \sum_{ij} Q_{ij} \log p(W_i = w_i, K_i = j; \theta) \\ 
+		&= \sum_{ij} Q_{ij} \left[\log p(W_i = w_i | K_i = j; \theta) + \log p(K_i = j; \theta) \right] \;.
+	\end{align*}
+
+	We then obtain a new parameter estimate as 
+	\begin{equation*}
+		\theta^* = \argmin_{\theta} U(\theta |\tilde{\theta})\;,
+	\end{equation*}
+	and repeat until convergence, which is guaranteed from \cite{Dempster1977}. 
+
+	So the things we need to do now are to make an assumption about $p(K_i = j; \theta)$ and then fill in the parametric forms of the settlement likelihood to construct an algorithm. Possibly we would combine grid-search in the cutoff thresholds $T$ alongside simple gradient descent in the other variables. However, we should consider with either (a) holding $T$ constant or (b) somehow softening these thresholds would make for a more tractable algorithm. 
+	
+\section{Miscellaneous Ideas}
+	Should we actually view the agglomeration force type exerted by each connected cluster as latent as well? This would allow us to make soft assignments to these clusters, thereby circumventing the (irritating) discrete optimization. The drawback here is that we introduce (potentially many) more latent variables, which could easily lead to very bad overfitting. 
+
+
+
+\bibliography{/Users/phil/bibs/library.bib}{}
+\bibliographystyle{apalike}
+
+\end{document}

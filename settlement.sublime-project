@@ -1,0 +1,43 @@
+{
+		"folders":
+		[
+			{
+				"name": "notes",
+				"path": "/Users/phil/projects/urban_growth/notes",
+				"file_exclude_patterns": [
+					"*.aux",
+					"*.pdf",
+					"*.synctex.gz",
+					"*.fls",
+					"*.log",
+					"*.bbl",
+					"*.blg",
+					"*.fdb_latexmk",
+				    "*.bst",
+				    "*.out",
+				    "*.xwm",
+				    "*.sty",
+				    "*.cls",
+				    "*.html",
+				    "*.toc"]
+			},
+			{
+				"name": "code",
+				"path": "/Users/phil/projects/urban_growth/urban_growth",
+				"file_exclude_patterns": [
+					"*.aux",
+					"*.pdf",
+					"*.synctex.gz",
+					"*.fls",
+					"*.log",
+					"*.bbl",
+					"*.blg",
+					"*.fdb_latexmk", 
+					"*.toc", 
+				    "__init__.py",
+				    "*.pyc"]
+			}
+		]
+	
+}
+

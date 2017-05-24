@@ -6,13 +6,14 @@
 
 \documentclass[english]{scrartcl}
 
-\title{Notes: An EM Algorithm for Multiscale Urban Agglomerative Growth}
+\title{Technical Notes: Models of Multiscale Agglomerative Settlement}
 \author{\emph{Phil Chodrow}}
 \date{\today}
 
 \usepackage{pc_writeup}
 \usepackage{pc_math}
 \usepackage[comma,authoryear]{natbib} 
+\usepackage[colorinlistoftodos,prependcaption,textsize=tiny]{todonotes}
 
 % -----------------------------------------------------------------------
 % --------------------------------- BODY --------------------------------
@@ -23,54 +24,165 @@
 
 \maketitle
 
-\section{Setup}
-	
-	Building on the work of \cite{Rybski2013}, we consider the following data and model. 
-	We have data $w = (w_0, w_1)$, where $w_0, w_1 \in \R^{n \times n}$ and $w_1 - w_0 \geq 0$. 
-	We view $w_1$ as a realization of a random variable $W_1$. 
-	To each cell $i$ of $W_1$, we assign a soft latent class $k$, such as $k \in \mathcal{K} = \{\text{rural, urban}\}$ that determines the probabilities of being settled under the correspoding modes. 
-	We have a parametric model for the probability of settlement under fixed class labels; that is, $p(W_{1,i} = w | K_i = k; \theta)$ is known in terms of some parameters $\theta$ to be 	inferred from data. 
-	We assume that the settlement of each cell is independent from that of all other cells, conditional on $K$ and $\theta$, so that 
-	\begin{equation*}
-		p(W_1 = w | K = k; \theta) = \prod_{i} p(W_{1,i} = w_i | K_i = k_i; \theta)
-	\end{equation*}
 
-	The model as specified is incomplete, since we don't have the joint distribution $p(W, K; \theta)$. 
-	We therefore assume a form for the marginal $p(K_i = k; \theta)$, which then completes the model. 
+These are technical notes for specifying and learning models of urban growth. 
+See the overview notes for motivations and interpretations. 
+The two algorithms depend on the following notations: 
+\begin{enumerate}
+	\item $G$ is the set of possible sites, which are indexed by $k$.
+	\item Each site possesses a time-dependent indicator variable $W_k(t)$ indicating whether site $k$ is occupied. 
+	\item The set of occupied sites is $\mathcal{W}(t) = \{k \in G \;|\; W_k(t) = 1\}$. The set of unoccupied sites is $\bar{W}(t) = G \setminus \mathcal{W}(t)$. 
+	\item The sites are related by a metric $d_{k\ell}$ between sites $k$ and $\ell$. The distance matrix $D$ is given by $D = [d_{k\ell}]$. 
+\end{enumerate}
 
-\section{E-Step}
+\section{Two Supervised Models}
 
-	Following the standard EM ``formula,'' we assume a previous parameter estimate $\tilde{\theta}$ and ask what this parameter and the data tell us about the hidden variables. 
-	Formally, we compute the updated probability that cell $i$ has class $j$ via Bayes' rule, obtaining: 
-	\begin{align*}
-		Q_{ij} &\triangleq p(K_i = j | W_i = w_i; \tilde{\theta}) \\ 
-		 &= \frac{p(W_i = w_i | K_i = j; \tilde{\theta}) p(K_i = j; \tilde{\theta})}{\sum_{j \in \mathcal{K}} p(W_i = w_i | K_i = j; \tilde{\theta}) p(K_i = j; \tilde{\theta})}\;. 
-	\end{align*}
+	We will first elaborate two supervised models for studying settlement, both of which treat type-conditional settlement as a monotonic transformation of a distance-weighted proximity function. 
+	We define 
+	\begin{equation}
+		p_{k|r}(\theta) = \prob(W_k(t+1) = 1 | R_k(t+1) = r; \theta)
+	\end{equation}
+	and 
+	\begin{equation}
+		q_{kr}(\theta) = \frac{p_{k|r}(\theta)}{\sum_{\rho \in \mathcal{R}} p_{k|\rho}(\theta)}. 
+	\end{equation}
+	The likelihood of settlement at site $k$ is then 
+	\begin{equation}
+		\prob(W_k(t + 1) = 1) = \sum_{r \in \mathcal{R}} p_{k|r} q_{kr}. 
+	\end{equation}
 
-\section{Solving the M-Step}
-	
-	In the M-step, we compute the expected model log-likelihood under $Q_{ij}$ and optimize new parameters: 
+	Models may be specified by specifying the functional form of $p_{k|r}(\theta)$. 
+	Two possibilities are: 
+	\begin{align}
+		p_{k|r}(\theta) &= \alpha_r \frac{\sum_{j \in \mathcal{W}_r(t)} d_{ij}^{-\gamma_r}}{\sum_{j \in G} d_{ij}^{-\gamma_u}} + \beta_r \label{eq:original}\\ 
+		 p_{k|r}(\theta) &= \alpha_r \sigma \left(\sum_{j \in \mathcal{W}_r(t)} d_{ij}^{-\gamma_r}\right) + \beta_r \label{eq:model_1}\;,
+	\end{align}
+	where $\mathcal{W}_r(t) = \{ k \in \mathcal{W}(t) \;|\; R_k = r \}$. 
+	In each expression, $\alpha_r$ is interpretable as the relative rate of growth of settlements of type $r$, $\beta_r$ is the background rate at which settlements appear without any local interactions, and $\gamma_r$ is a spatial dispersion parameter which is large when settlements are tightly concentrated in space and small when they are highly disperse. 
+	The two specifications differ only in how they transform the distance-weighting sum $\sum_{j \in \mathcal{W}_r(t)} d_{ij}^{-\gamma_r}$ into an appropriately normalized probability.
 
-	\begin{align*}
-		U(\theta | \tilde{\theta}) &= \E_{K|W = w; \tilde{\theta}}[\log p(W = w, K; \theta)] \\ 
-		&= \sum_{ij} Q_{ij} \log p(W_i = w_i, K_i = j; \theta) \\ 
-		&= \sum_{ij} Q_{ij} \left[\log p(W_i = w_i | K_i = j; \theta) + \log p(K_i = j; \theta) \right] \;.
-	\end{align*}
+	We observe the data $D$ consisting of measures $x_k \in \{0,1\}$ for each $k \in \bar{\mathcal{W}}(t)$. 
+	Suppose that, in addition, we hypothetically observed the latent types of potential settlements $R_k \in \{0,1\}$, with $R_k = 0$ for rural settlement and $R_k = 1$ for urban settlement. 
+	Then, we could write the complete data likelihood in the form 
+	\begin{equation}
+		\mathcal{L}(X, Z;\theta) = \prod_{k \in \bar{\mathcal{W}}(t), r \in \mathcal{R}}\left[ q_{kr}(\theta)p_{k|r}(\theta)^{x_k}(1 - p_{k|r}(\theta))^{1 - x_k}\right]^{z_{kr}}\;, 
+	\end{equation}
+	where $q_{kr}$ is the probability that cell $k$ is assigned type $r \in \mathcal{R}$ of potential types and $z_{kr}$ is an indicator variable for the assignment of $k$ to $r$. 
+	The complete data log likelihood is then 
+	\begin{equation}
+		\ell(X,Z;\theta) =  \sum_{k \in \bar{\mathcal{W}}(t), r \in \mathcal{R}} z_{kr}\left[\log q_{kr}(\theta) + x_k \log p_{k|r}(\theta) + (1-x_k) \log (1 - p_{k|r}(\theta))\right].
+	\end{equation}
+	Of course, in practice we don't observe $Z$, and cannot maximize the complete data log likelihood directly. 
+	Instead, we consider a version of the EM algorithm in which we first formulate a belief over $Z$ and then take the expectation of the expected log likelihood with respect to that belief. 
+	The resulting updates may be formulated as 
+	\begin{enumerate}
+		\item \textbf{E-Step.} Compute the expected value of $z_{kr}$ for each $k$ and $r$ with respect to the current parameters $\hat{\theta}$, which are simply 
+		\begin{equation}
+			\gamma_{kr} = q_{rk}(\hat{\theta}).
+		\end{equation}
+		\item \textbf{M-Step.} Maximize the expected complete data log-likelihood, given by 
+		\begin{equation}
+			U(\theta|\hat{\theta}) = \sum_{k \in \bar{\mathcal{W}}(t), r \in \mathcal{R}} \gamma_{kr}\left[\log q_{kr}(\theta) + x_k \log p_{k|r}(\theta) + (1-x_k) \log (1 - p_{k|r}(\theta))\right].
+		\end{equation}
+	\end{enumerate}
 
-	We then obtain a new parameter estimate as 
-	\begin{equation*}
-		\theta^* = \argmin_{\theta} U(\theta |\tilde{\theta})\;,
-	\end{equation*}
-	and repeat until convergence, which is guaranteed from \cite{Dempster1977}. 
+	Executing the M-step requires computation of the gradient $\nabla_\theta U(\theta|\hat{\theta})$. 
+	We have 
+	\begin{align}
+		\nabla_\theta U(\theta|\hat{\theta}) &= \sum_{k \in \bar{\mathcal{W}}(t), r \in \mathcal{R}} \gamma_{kr} \left[ \frac{\nabla_\theta q_{kr}(\theta)}{q_{kr}(\theta)}  + \left(\frac{x_k}{p_{k|r(\theta)}} -  \frac{1-x_k}{1 - p_{k|r}(\theta)}\right) \nabla_\theta p_{k|r}(\theta)  \right]\;.
+	\end{align}
+	Completing the M step thus requires the gradients $\nabla_\theta q_{kr}(\theta)$ and $\nabla_\theta p_{k|r}(\theta)$. 
+	The former can be computed in terms of the latter as 
+	\begin{align}
+		\frac{\nabla_\theta q_{kr}(\theta)}{q_{kr}(\theta)} &= \nabla_\theta\log p_{k|r}(\theta) - \nabla_\theta \log \sum_{r \in \mathcal{R}} p_{k|r}(\theta) \\ 
+		&= \frac{\nabla_\theta p_{k|r}(\theta)}{p_{k|r}(\theta)} - \frac{\sum_{r \in \mathcal{R}} \nabla_\theta p_{k|r}(\theta)}{\sum_{r \in \mathcal{R}} p_{k|r}(\theta)}\;,
+	\end{align}
+	which is tractable when $\abs{\mathcal{R}}$ is small. 
+	The functional forms of the gradients depend on which of \eqref{eq:original} and \eqref{eq:model_1} are used. 
+	In both models, we have 
+	\begin{align}
+		\frac{\partial p_{k|r}(\theta)}{\partial \alpha_s} = \begin{cases} \frac{p_{k|r}(\theta) - \beta_r}{\alpha_r} &\quad s = r \\ 0 &\quad \text{otherwise}\;. \end{cases}
+	\end{align}
+	and 
+	\begin{align}
+		\frac{\partial p_{k|r}(\theta)}{\partial \beta_s} = \begin{cases} 1 &\quad s = r \\ 0 &\quad \text{otherwise}\;. \end{cases}
+	\end{align}
 
-	So the things we need to do now are to make an assumption about $p(K_i = j; \theta)$ and then fill in the parametric forms of the settlement likelihood to construct an algorithm. Possibly we would combine grid-search in the cutoff thresholds $T$ alongside simple gradient descent in the other variables. However, we should consider with either (a) holding $T$ constant or (b) somehow softening these thresholds would make for a more tractable algorithm. 
-	
-\section{Miscellaneous Ideas}
-	Should we actually view the agglomeration force type exerted by each connected cluster as latent as well? This would allow us to make soft assignments to these clusters, thereby circumventing the (irritating) discrete optimization. The drawback here is that we introduce (potentially many) more latent variables, which could easily lead to very bad overfitting. 
+	In the case of \eqref{eq:original}, the derivative with respect to $\gamma$ takes a somewhat unpleasant form; using the chain rule, we obtain 
+	\begin{align}
+		\frac{\partial p_{k|r}(\theta)}{\partial \gamma_r} &= \gamma_r\frac{\left[ \left(\sum_{j \in G} d_{jk}^{-(\gamma_r + 1)}\right)\left( \sum_{j \in \mathcal{W}_r} d_{jk}^{-\gamma_r} \right) - \left(\sum_{j \in G} d_{jk}^{-(\gamma_r)}\right)\left( \sum_{j \in \mathcal{W}_r} d_{jk}^{-(\gamma_r + 1)} \right) \right]}{\left(\sum_{j \in G} d_{jk}^{-\gamma_r}\right)^2} \\ 
+		&= \gamma_r \frac{\left[ \left(\sum_{j \in G} d_{jk}^{-(\gamma_r + 1)}\right)\left(p_{k|r}(\theta) - \beta_r \right) \alpha_r^{-1} - \left( \sum_{j \in \mathcal{W}_r} d_{jk}^{-(\gamma_r + 1)} \right) \right]}{\sum_{j \in G} d_{jk}^{-\gamma_r}}
+	\end{align}
+	Using \eqref{eq:model_1}, we get something a bit more tractable: 
+	\begin{equation}
+		\frac{\partial p_{k|r}(\theta)}{\partial \gamma_r} = \frac{-\gamma_r}{\alpha_r}\left(p_{k|r}(\theta) - \beta_r\right) \left(\alpha_r - (p_{k|r}(\theta) - \beta_r) \right) \sum_{j \in \mathcal{W}_r} d_{jk}^{-(\gamma_r + 1)}, 
+	\end{equation}
+	which involves fewer and smaller summations. 
+
+\section{One Unsupervised Model}
+
+	Our third model under consideration views the inference problem as an \emph{unsupervised} problem in which we seek to model the density of new settlements via a mixture of densities centered at existing settlements. 
+	For each newly-settled site $k$, there is an unobserved parent cluster $j$ composed of spatially-adjacent sites in $\mathcal{W}(t)$.
+	We view the new settlements as generated by a probability distribution 
+	\begin{equation}
+		P(j; \theta) = \sum_{k} \pi_j p_j(k;\theta_j),
+	\end{equation}
+	where $P(k;\theta)$ is the pdf at site $k$, $p_j(k; \theta_j)$ is the contribution to $P$ of existing settlement $j$ at site $k$, and $\pi_j$ are mixing coefficients satisfying $\sum_j \pi_j = 1$ and $\pi_j \geq 0$.  
+	The distributions $p_j(k; \theta_j)$ reflect the shape of the contribution of each existing cluster, while the mixing coefficients $\pi_j$ determine their relative importance. 
+	For example, if a city is nearly monocentric and compact in space, we might expect that the distribution $p_j(k; \theta_j)$ corresponding to the center to be highly concentrated in space, and that the associated mixing coefficient $\pi_k$ would be high. 
+	In contrast, if a city is polycentric, we might observe multiple concentrated distributions with lower mixing coefficients. 
+
+	To perform inference in this model, we develop an EM algorithm that is highly reminiscent of standard Gaussian mixture-modeling. 
+	The hidden data is the matrix $Z$ of parent-child settlement relationships, with $z_{kj} = 1$ if settled site $k$ is ``descended'' from cluster $j$. 
+	The complete data likelihood is then 
+	\begin{equation}
+		L(X, Z;\theta) = \prod_{k, j} (\pi_{j} p_j(k;\theta_j))^{z_{kj}}\;,
+	\end{equation}
+	giving a log-likelihood 
+	\begin{equation}
+		\ell(X,Z;\theta) = \sum_{k, j} z_{kj} \left[\log \pi_{j} + \log p_j(k;\theta_j) \right]\;.
+	\end{equation}
+	Since we don't observe the complete data, we instead estimate the expected values of $z_{kj}$ as 
+	\begin{equation}
+		\gamma_{kj} = \frac{\pi_{j} p_j(k;\theta_j)}{\sum_j \pi_{j} p_j(k;\theta_j)}
+	\end{equation}
+	and then maximize the expected log-likelihood 
+	\begin{equation}
+		\ell(X,Z;\theta) = \sum_{k, j} \gamma_{kj} \left[\log \pi_{j} + \log p_j(k;\theta_j) \right]\;. \label{eq:unsupervised_ll}
+	\end{equation}
+	with respect to the mixture coefficients $\pi_j$ and the component parameters $\theta_j$. 
+	Since the mixture coefficients are uncoupled from the component parameters, we can obtain expressions for them in closed form, giving 
+	\begin{equation}
+		\pi_j = \frac{1}{N} \sum_{k} \gamma_{kj}
+	\end{equation}
+	which expresses the mixture coefficients as total responsibilities. 
+	The component parameters $\theta_j$ need to be optimized iteratively depending on the functional form of $p_j$. 
+	One appropriate possibility that captures the flavor and potentially the physics of Rybski-style growth is 
+	\begin{equation}
+		p_j(k;\gamma_j) = \frac{1}{Z(\gamma_j)}\sum_{i \in C_j}d_{ik}^{-\gamma_j}\;,
+	\end{equation}
+	where $Z(\gamma_j)$ is the normalizing partition function. \todo{Would it make more sense to exponentiate and take advantage of the nice properties of exponential families? Not linear, so unclear whether this would be helpful.}
+	To optimize \eqref{eq:unsupervised_ll}, we need the gradient of $\log p_j(k;\theta_j)$, which we obtain as 
+	\begin{align}
+		\nabla_{\theta_j} \log p_j(k;\theta_j) &= \frac{1}{p_j(k;\theta_j)}\nabla_{\theta_j} p_j(k;\theta_j) \\ 
+		&= \frac{1}{p_j(k;\theta_j)}  \frac{\left(-\gamma_j\sum_{i \in C_j}d_{ik}^{-(\gamma_j + 1)}\right) Z(\gamma_j) - \nabla Z(\gamma_j) \sum_{i \in C_j}d_{ik}^{-\gamma_j}  }{Z(\gamma_j)^2} \\ 
+		&= \frac{1}{p_j(k;\theta_j)}  \frac{\left(-\gamma_j\sum_{i \in C_j}d_{ik}^{-(\gamma_j + 1)}\right) - p_j(k;\gamma_j)\nabla Z(\gamma_j)   }{Z(\gamma_j)},
+	\end{align}
+	which is not especially pleasant to compute but also likely doesn't need to be computed too many times. 
+
+\section{Todo}
+
+\begin{enumerate}
+	\item Model Analyses
+	\begin{itemize}
+		\item Model capacity
+		\item Fisher information (parameter identifiability)
+	\end{itemize}
+	\item Plate viz of models
+\end{enumerate}
 
 
-
-\bibliography{/Users/phil/bibs/library.bib}{}
-\bibliographystyle{apalike}
+% \bibliography{/Users/phil/bibs/library.bib}{}
+% \bibliographystyle{apalike}
 
 \end{document}

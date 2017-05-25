@@ -36,7 +36,7 @@ class settlement_model:
 
 		return types
 
-	def density(self, thresh, pars):
+	def density(self, thresh, pars, use_geo = False):
 		'''
 			Forward step
 		'''
@@ -51,7 +51,10 @@ class settlement_model:
 		w_rural, w_urban = distance_weights(self.M0, dists, thresh, **g_pars) # focus on transforming into appropriate array
 		# probs = model_1_probs(dists, "other stuff") # not implemented, should be 2 L times L 	arrays
 		
-		return model_1_probs(w_rural, w_urban, **p_pars)
+		probs = model_1_probs(w_rural, w_urban, **p_pars) 
+		if use_geo:
+			probs = probs * self.geo
+		return probs
 
 	def infer(self, model_type, M1, return_trace = True):
 		'''

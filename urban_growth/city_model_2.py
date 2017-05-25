@@ -11,7 +11,7 @@ class settlement_model:
 		if geo is not None:
 			self.geo = geo
 		elif M0 is not None:
-			geo = np.ones(self.M0.shape)
+			self.geo = np.ones(self.M0.shape)
 
 		if D is not None: 
 			self.D = D
@@ -22,12 +22,17 @@ class settlement_model:
 		else:
 			self.M0 = random_mat(**kwargs)
 
+		self.M = self.M0.copy()
+
 	def get_M0(self):
 		return self.M0
 
+	def get_M(self):
+		return self.M
+
 	def settlement_type_matrix(self, thresh):
-		rural, urban, unsettled = settlement_types(self.M0, thresh = thresh)
-		types = np.zeros(self.M0.shape)
+		rural, urban, unsettled = settlement_types(self.M, thresh = thresh)
+		types = np.zeros(self.M.shape)
 
 		for i in range(urban.shape[0]):
 		    types[tuple(urban[i,])] =  1
@@ -37,24 +42,48 @@ class settlement_model:
 		return types
 
 	def density(self, thresh, pars, use_geo = False):
-		'''
-			Forward step
-		'''
-
-
-		dists = get_dists(self.M0, thresh)
+		
+		dists = get_dists(self.M, thresh)
 		
 		gammas = ('gamma_r', 'gamma_u')
 		g_pars = {k: pars[k] for k in gammas}
 		p_pars = {k: pars[k] for k in pars if k not in gammas}
 
-		w_rural, w_urban = distance_weights(self.M0, dists, thresh, **g_pars) # focus on transforming into appropriate array
-		# probs = model_1_probs(dists, "other stuff") # not implemented, should be 2 L times L 	arrays
+		w_rural, w_urban = distance_weights(self.M, dists, thresh, **g_pars) 
 		
 		probs = model_1_probs(w_rural, w_urban, **p_pars) 
 		if use_geo:
 			probs = probs * self.geo
+
 		return probs
+
+	def sample(self, thresh, pars, use_geo = False):
+		'''
+			Forward step
+		'''
+
+		probs = self.density(thresh, pars, use_geo = use_geo)
+		prob = probs[0] + probs[1]
+		rands = np.random.rand(*prob.shape)
+		new_mat = (rands < prob) * 1
+
+		return new_mat
+
+	def dynamics(self, thresh, pars, use_geo = False, n_iters = 5):
+		
+		# problem: somewhere in here we aren't updating the 
+		
+		times = np.arange(2, n_iters + 2)
+		return_mat = self.M.copy()
+		for i in times:
+			s = self.sample(thresh, pars, use_geo)
+			self.M += s
+			return_mat += i * s
+
+		return_mat[return_mat == 0] = np.nan 	
+		return_mat -= 1
+		
+		return return_mat
 
 	def infer(self, model_type, M1, return_trace = True):
 		'''
@@ -90,9 +119,9 @@ def settlement_types(M,  return_type = 'cell', thresh = 0):
 	mask      = id_clusters(M)
 	area_dict = cluster_areas(mask)
 	
-	urban_clusters  = {key : area_dict[key] for key in area_dict if area_dict[key] >= thresh}
+	urban_clusters = {key : area_dict[key] for key in area_dict if area_dict[key] >= thresh}
 
-	rural_clusters  = area_dict
+	rural_clusters = area_dict
 	for key in urban_clusters:
 		rural_clusters.pop(key, None) 
 

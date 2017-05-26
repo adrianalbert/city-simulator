@@ -18,6 +18,8 @@ class settlement_model:
 
 		self.dists     = None
 		self.dist_type = None
+		self.dist_mode = None
+		self.dist_truncation = None
 
 	def set_M0(self, M0 = None, **kwargs):
 		if M0 is not None:
@@ -44,30 +46,33 @@ class settlement_model:
 		types = np.zeros(M_d.shape)
 
 		for i in range(urban.shape[0]):
-		    types[tuple(urban[i,])] =  1
+			types[tuple(urban[i,])] =  1
 		for i in range(rural.shape[0]):
-		    types[tuple(rural[i,])] = -1		
+			types[tuple(rural[i,])] = -1		
 
 		return types
 
-	def set_dists(self, thresh, stage = 'current'):
+	def set_dists(self, thresh, stage = 'current', mode = 'full', truncation = None):
 		
 		print 'recalculating distances'
 		if stage == 'initial': 
-			self.dists = get_dists(self.M0, thresh)	
-			self.dist_type = 'initial'
+			self.dists = get_dists(self.M0, thresh, mode, truncation)	
+			
 		elif stage == 'current':
-			self.dists = get_dists(self.M, thresh)
-			self.dist_type = 'current'
+			self.dists = get_dists(self.M, thresh, mode, truncation)
+		
+		self.dist_type = stage
+		self.dist_mode = mode
+		self.dist_truncation = truncation
 
-	def density(self, thresh, pars, use_geo = False, stage = 'current'):
+	def density(self, thresh, pars, use_geo = False, stage = 'current', mode = 'full', truncation = None):
 		
 		pars = {k : float(pars[k]) for k in pars}  # had a float bug in here somewhere
 
-		if stage == 'current':
-			self.set_dists(thresh, stage)
-		elif (stage == 'initial') & (self.dist_type != 'initial'):
-			self.set_dists(thresh, stage)
+		redo_dists = (self.dist_mode != mode) |  (stage == 'current') | (stage == 'initial') & (self.dist_type != 'initial') | (truncation != self.dist_truncation)
+		
+		if redo_dists:
+			self.set_dists(thresh, stage, mode, truncation)
 		
 		gammas = ('gamma_r', 'gamma_u')
 		g_pars = {k: pars[k] for k in gammas}
@@ -86,24 +91,24 @@ class settlement_model:
 
 		return probs
 
-	def sample(self, thresh, pars, use_geo = False, stage = 'current'):
+	def sample(self, thresh, pars, use_geo = False, stage = 'current', mode = 'full', truncation = None):
 		'''
 			Forward step
 		'''
 
-		probs = self.density(thresh, pars, use_geo, stage)
+		probs = self.density(thresh, pars, use_geo, stage, mode, truncation)
 		prob = probs[0] + probs[1]
 		rands = np.random.rand(*prob.shape)
 		new_mat = (rands < prob) * 1
 
 		return new_mat
 
-	def dynamics(self, thresh, pars, use_geo = False, n_iters = 5):
+	def dynamics(self, thresh, pars, use_geo = False, n_iters = 5, mode = 'full', truncation = None):
 			
 		times = np.arange(2, n_iters + 2)
 		return_mat = self.M.copy()
 		for i in times:
-			s = self.sample(thresh, pars, use_geo, 'current')
+			s = self.sample(thresh, pars, use_geo, 'current', mode, truncation)
 			self.M += s
 			return_mat += i * s
 
@@ -119,12 +124,12 @@ class settlement_model:
 		print 'not implemented'
 
 
-	def log_likelihood(self, M1, thresh, pars, model_type, normalized = False, use_geo = False):
+	def log_likelihood(self, M1, thresh, pars, model_type, normalized = False, use_geo = False, truncation = None):
 		'''
 			Correct for both of the supervised models
 		'''
 		
-		probs = self.density(thresh, pars, use_geo, stage = 'initial')
+		probs = self.density(thresh, pars, use_geo, stage = 'initial', truncation = truncation)
 		prob = probs[0] + probs[1]
 		
 		X = M1 
@@ -133,7 +138,7 @@ class settlement_model:
 		
 		if normalized:
 			N = (1 - 
-			     np.isnan(M1)).sum()
+				 np.isnan(M1)).sum()
 			return 1.0 / N * ll
 		
 		else:
@@ -152,29 +157,45 @@ def id_clusters(M):
 	mask = morphology.label(M, connectivity = 1)
 	return mask
 
-def cluster_areas(mask):
+def cluster_areas(mask, centroids = False):
 	
 	u = np.unique(mask, return_counts = True)
-	area_dict = {u[0][i] : u[1][i] for i in range(len(u[0]))} # needs to be sorted?
+
+	def centroid(i):
+		ix = np.where(mask == i)
+		return np.array(ix).mean(axis = 1)
+
+	def f(i):
+		if centroids:
+			return np.concatenate((np.array([u[1][i]]), centroid(i)))
+		else:
+			return u[1][i]
+
+	area_dict = {u[0][i] : f(i) for i in range(len(u[0]))} # needs to be sorted?
 	area_dict.pop(0) # ignore background
 	return area_dict
 
-def settlement_types(M,  return_type = 'cell', thresh = 0):
+def settlement_types(M,  return_type = 'cell', thresh = 0, centroids = False):
 	'''
 		Compute the types of cells and return the results at either the cluster or cell level. 
 	'''
 
 	mask      = id_clusters(M)
-	area_dict = cluster_areas(mask)
+	area_dict = cluster_areas(mask, centroids)
 	
-	urban_clusters = {key : area_dict[key] for key in area_dict if area_dict[key] >= thresh}
-
+	if centroids & (return_type == 'cluster'):
+		urban_clusters = {key : area_dict[key] for key in area_dict if area_dict[key][0] >= thresh}
+	else:
+		urban_clusters = {key : area_dict[key] for key in area_dict if area_dict[key] >= thresh}
+	
 	rural_clusters = area_dict
+
 	for key in urban_clusters:
 		rural_clusters.pop(key, None) 
 
 	if return_type == 'cluster':
-		return rural_clusters, urban_clusters
+		return np.array(rural_clusters.values()), np.array(urban_clusters.values())
+
 	else:
 		ix = np.in1d(mask.ravel(), urban_clusters.keys()).reshape(mask.shape)
 		a = np.where(ix)
@@ -193,21 +214,41 @@ def settlement_types(M,  return_type = 'cell', thresh = 0):
 
 # Distance computations. An alternative way to approach this would be to compute the distance to the centroid weighted by the size of the cluster, which would have slightly different physics but would likely be MUCH faster. Would need to check for weird behavior -- as cluster gets larger, weight should increase, but this is not prima facie guaranteed under the centroid scheme. 
 
-def get_dists(M, thresh = 0):
+def get_dists(M, thresh = 0, mode = 'full', truncation = None):
 	
 	def f(j, arr):
-		a = np.unique(arr[j,], return_counts=True)
-		return [(a[0][i], a[1][i]) for i in range(a[0].shape[0])]
+			a = np.unique(arr[j,], return_counts=True)
+			if truncation is not None:
+				out = np.array([[a[0][i], a[1][i]] for i in range(a[0].shape[0]) if a[0][i] <= truncation])
+				if len(out) == 0:
+					out = np.array([[1,0]])
+				return out
+			else:
+				return np.array([[a[0][i], a[1][i]] for i in range(a[0].shape[0])])
 
-	rural, urban, unsettled = settlement_types(M, 'cell', thresh)
-	
-	rural_dist_mat = distance.cdist(unsettled, rural, 'euclidean').astype(int)
-	rural_dists    = {i : f(i, rural_dist_mat) for i in range(rural_dist_mat.shape[0])}
+	if mode == 'full':
+		
+		rural, urban, unsettled = settlement_types(M, 'cell', thresh)
+		
+		rural_dist_mat = distance.cdist(unsettled, rural, 'euclidean').astype(int)
+		rural_dists    = {i : f(i, rural_dist_mat) for i in range(rural_dist_mat.shape[0])}
 
-	urban_dist_mat = distance.cdist(unsettled, urban, 'euclidean').astype(int)
-	urban_dists    = {i : f(i, urban_dist_mat) for i in range(urban_dist_mat.shape[0])}
+		urban_dist_mat = distance.cdist(unsettled, urban, 'euclidean').astype(int)
+		urban_dists    = {i : f(i, urban_dist_mat) for i in range(urban_dist_mat.shape[0])}
 
-	return rural_dists, urban_dists
+		return rural_dists, urban_dists
+
+	if mode == 'centroid':
+		rural_clusters, urban_clusters = settlement_types(M, 'cluster', thresh, True)
+		rural_cells, urban_cells, unsettled_cells = settlement_types(M, 'cell', thresh)
+
+		rural_dist_mat = distance.cdist(unsettled_cells, rural_clusters[:,1:], 'euclidean').astype(int)
+		urban_dist_mat = distance.cdist(unsettled_cells, urban_clusters[:,1:], 'euclidean').astype(int)
+
+		rural_dists    = {i : f(i, rural_dist_mat) for i in range(rural_dist_mat.shape[0])}
+		urban_dists    = {i : f(i, urban_dist_mat) for i in range(urban_dist_mat.shape[0])}
+
+		return rural_dists, urban_dists
 
 def distance_weights(M, dists, thresh, gamma_r, gamma_u):
 	def f(i, gamma_r, gamma_u):
@@ -237,20 +278,20 @@ def distance_weights(M, dists, thresh, gamma_r, gamma_u):
 
 
 def random_mat(L, density = .5, blurred = True, blur = 3, central_city = True):
-    
-    M = np.random.rand(L, L)
+	
+	M = np.random.rand(L, L)
 
-    if central_city:
+	if central_city:
 
-        M[(1 * L/2 - L / 10):(1 * L/2 + L/10),(1 * L/2 - L / 10):(1 * L/2 + L/10)] = 0
+		M[(1 * L/2 - L / 10):(1 * L/2 + L/10),(1 * L/2 - L / 10):(1 * L/2 + L/10)] = 0
 
-    if blurred: 
-        M = gaussian_filter(M, blur)
-        
-    ix_low = M < density  # Where values are low
-    M[ix_low]  = 1
+	if blurred: 
+		M = gaussian_filter(M, blur)
+		
+	ix_low = M < density  # Where values are low
+	M[ix_low]  = 1
 
-    M[M < 1] = 0
-        
-    return M
+	M[M < 1] = 0
+		
+	return M
 

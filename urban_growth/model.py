@@ -91,58 +91,7 @@ class settlement_model:
 
 		return probs
 
-	def sample(self, thresh, pars, use_geo = False, stage = 'current', mode = 'full', truncation = None):
-		'''
-			Forward step
-		'''
-
-		probs = self.density(thresh, pars, use_geo, stage, mode, truncation)
-		prob = probs[0] + probs[1]
-		rands = np.random.rand(*prob.shape)
-		new_mat = (rands < prob) * 1
-
-		return new_mat
-
-	def dynamics(self, thresh, pars, use_geo = False, n_iters = 5, mode = 'full', truncation = None):
-			
-		times = np.arange(2, n_iters + 2)
-		return_mat = self.M.copy()
-		for i in times:
-			s = self.sample(thresh, pars, use_geo, 'current', mode, truncation)
-			self.M += s
-			return_mat += i * s
-
-		return_mat[return_mat == 0] = np.nan 	
-		return_mat -= 1
-		
-		return return_mat
-
-	def infer(self, model_type, M1, return_trace = True):
-		'''
-			Backward step
-		'''
-		print 'not implemented'
-
-
-	def log_likelihood(self, M1, thresh, pars, model_type, normalized = False, use_geo = False, truncation = None):
-		'''
-			Correct for both of the supervised models
-		'''
-		
-		probs = self.density(thresh, pars, use_geo, stage = 'initial', truncation = truncation)
-		prob = probs[0] + probs[1]
-		
-		X = M1 
-
-		ll = np.nansum(X * np.log(prob) + (1 - X) * np.log(1 - prob))
-		
-		if normalized:
-			N = (1 - 
-				 np.isnan(M1)).sum()
-			return 1.0 / N * ll
-		
-		else:
-			return ll
+	
 
 def model_1_probs(w_rural, w_urban, alpha_r, beta_r, alpha_u, beta_u):
 	p_r = expit(alpha_r * w_rural + beta_r)
@@ -212,8 +161,6 @@ def settlement_types(M,  return_type = 'cell', thresh = 0, centroids = False):
 
 		return rural_cells, urban_cells, unsettled_cells
 
-# Distance computations. An alternative way to approach this would be to compute the distance to the centroid weighted by the size of the cluster, which would have slightly different physics but would likely be MUCH faster. Would need to check for weird behavior -- as cluster gets larger, weight should increase, but this is not prima facie guaranteed under the centroid scheme. 
-
 def get_dists(M, thresh = 0, mode = 'full', truncation = None):
 	
 	def f(j, arr):
@@ -275,7 +222,6 @@ def distance_weights(M, dists, thresh, gamma_r, gamma_u):
 		weights_rural[unsettled[i][0], unsettled[i][1]] = weight_tuples[i][0]
 
 	return weights_rural, weights_urban
-
 
 def random_mat(L, density = .5, blurred = True, blur = 3, central_city = True):
 	

@@ -16,6 +16,9 @@ class settlement_model:
 		if D is not None: 
 			self.D = D
 
+		self.dists     = None
+		self.dist_type = None
+
 	def set_M0(self, M0 = None, **kwargs):
 		if M0 is not None:
 			self.M0 = M0
@@ -30,9 +33,15 @@ class settlement_model:
 	def get_M(self):
 		return self.M
 
-	def settlement_type_matrix(self, thresh):
-		rural, urban, unsettled = settlement_types(self.M, thresh = thresh)
-		types = np.zeros(self.M.shape)
+	def settlement_type_matrix(self, thresh, stage = 'current'):
+		if stage == 'current': 
+			M_d = self.M
+
+		elif stage == 'initial':
+			M_d = self.M0
+
+		rural, urban, unsettled = settlement_types(M_d, thresh = thresh)
+		types = np.zeros(M_d.shape)
 
 		for i in range(urban.shape[0]):
 		    types[tuple(urban[i,])] =  1
@@ -41,15 +50,35 @@ class settlement_model:
 
 		return types
 
-	def density(self, thresh, pars, use_geo = False):
+	def set_dists(self, thresh, stage = 'current'):
 		
-		dists = get_dists(self.M, thresh)
+		print 'recalculating distances'
+		if stage == 'initial': 
+			self.dists = get_dists(self.M0, thresh)	
+			self.dist_type = 'initial'
+		elif stage == 'current':
+			self.dists = get_dists(self.M, thresh)
+			self.dist_type = 'current'
+
+	def density(self, thresh, pars, use_geo = False, stage = 'current'):
+		
+		pars = {k : float(pars[k]) for k in pars}  # had a float bug in here somewhere
+
+		if stage == 'current':
+			self.set_dists(thresh, stage)
+		elif (stage == 'initial') & (self.dist_type != 'initial'):
+			self.set_dists(thresh, stage)
 		
 		gammas = ('gamma_r', 'gamma_u')
 		g_pars = {k: pars[k] for k in gammas}
 		p_pars = {k: pars[k] for k in pars if k not in gammas}
+		
+		if stage == 'initial': 
+			M_d = self.M0
+		elif stage == 'current':
+			M_d = self.M
 
-		w_rural, w_urban = distance_weights(self.M, dists, thresh, **g_pars) 
+		w_rural, w_urban = distance_weights(M_d, self.dists, thresh, **g_pars) 
 		
 		probs = model_1_probs(w_rural, w_urban, **p_pars) 
 		if use_geo:
@@ -57,12 +86,12 @@ class settlement_model:
 
 		return probs
 
-	def sample(self, thresh, pars, use_geo = False):
+	def sample(self, thresh, pars, use_geo = False, stage = 'current'):
 		'''
 			Forward step
 		'''
 
-		probs = self.density(thresh, pars, use_geo = use_geo)
+		probs = self.density(thresh, pars, use_geo, stage)
 		prob = probs[0] + probs[1]
 		rands = np.random.rand(*prob.shape)
 		new_mat = (rands < prob) * 1
@@ -70,13 +99,11 @@ class settlement_model:
 		return new_mat
 
 	def dynamics(self, thresh, pars, use_geo = False, n_iters = 5):
-		
-		# problem: somewhere in here we aren't updating the 
-		
+			
 		times = np.arange(2, n_iters + 2)
 		return_mat = self.M.copy()
 		for i in times:
-			s = self.sample(thresh, pars, use_geo)
+			s = self.sample(thresh, pars, use_geo, 'current')
 			self.M += s
 			return_mat += i * s
 
@@ -90,6 +117,27 @@ class settlement_model:
 			Backward step
 		'''
 		print 'not implemented'
+
+
+	def log_likelihood(self, M1, thresh, pars, model_type, normalized = False, use_geo = False):
+		'''
+			Correct for both of the supervised models
+		'''
+		
+		probs = self.density(thresh, pars, use_geo, stage = 'initial')
+		prob = probs[0] + probs[1]
+		
+		X = M1 
+
+		ll = np.nansum(X * np.log(prob) + (1 - X) * np.log(1 - prob))
+		
+		if normalized:
+			N = (1 - 
+			     np.isnan(M1)).sum()
+			return 1.0 / N * ll
+		
+		else:
+			return ll
 
 def model_1_probs(w_rural, w_urban, alpha_r, beta_r, alpha_u, beta_u):
 	p_r = expit(alpha_r * w_rural + beta_r)
@@ -187,17 +235,6 @@ def distance_weights(M, dists, thresh, gamma_r, gamma_u):
 
 	return weights_rural, weights_urban
 
-# def model_1_probs(M, gamma_r, gamma_u, alpha_r, alpha_u, beta_r, beta_u, thresh):
-
-# 	dists = get_dists(M, thresh)
-# 	weights_rural, weights_urban = distance_weights(M, dists, gamma_r, gamma_u, thresh)
-
-# 	p_r = alpha_r * weights_rural + beta_r 
-# 	p_u = alpha_u * weights_urban + beta_u 
-
-# 	denom = p_r + p_u
-
-# 	return p_r ** 2 / denom, p_u ** 2 / denom
 
 def random_mat(L, density = .5, blurred = True, blur = 3, central_city = True):
     

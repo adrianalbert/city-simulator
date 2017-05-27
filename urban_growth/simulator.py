@@ -6,24 +6,26 @@ class simulator(settlement_model):
 
 		settlement_model.__init__(self, **kwargs)
 
-	def sample(self, thresh, pars, use_geo = False, stage = 'current', mode = 'full', truncation = None):
+	def sample(self, **kwargs):
 		'''
 			Forward step
 		'''
 
-		probs = self.density(thresh, pars, use_geo, stage, mode, truncation)
+		probs = self.density(**kwargs)
 		prob = probs[0] + probs[1]
 		rands = np.random.rand(*prob.shape)
 		new_mat = (rands < prob) * 1
 
 		return new_mat
 
-	def dynamics(self, thresh, pars, use_geo = False, n_iters = 5, mode = 'full', truncation = None):
-			
+	def dynamics(self, n_iters = 5, **kwargs):
+		'''
+			Defaults to model_1 for now
+		'''
 		times = np.arange(2, n_iters + 2)
 		return_mat = self.M.copy()
 		for i in times:
-			s = self.sample(thresh, pars, use_geo, 'current', mode, truncation)
+			s = self.sample(stage = 'current', **kwargs)
 			self.M += s
 			return_mat += i * s
 

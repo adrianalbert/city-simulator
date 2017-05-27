@@ -4,6 +4,31 @@ from scipy.spatial import distance
 from scipy.special import expit
 from scipy.ndimage.filters import gaussian_filter
 
+def model_1(w_r, w_u, alpha_r, beta_r, alpha_u, beta_u, gamma_r, gamma_u):
+	
+		p_r = expit(alpha_r * w_r + beta_r)
+		p_u = expit(alpha_u * w_u + beta_u)
+
+		denom = p_r + p_u
+
+		return p_r ** 2 / denom, p_u ** 2 / denom
+
+def model_0(w_r, w_u, C_r, C_u, gamma_r, gamma_u, truncation = None):
+
+	def normalizer(gamma, truncation):
+		
+		if truncation is not None:
+			return 2.0 * np.pi * (1.0 - truncation ** (1.0 - gamma)) / (gamma - 1.0)
+		else:
+			return 2.0 * np.pi * 1.0 / (gamma - 1.0)
+	
+	p_r = 1.0 * C_r * w_r / normalizer(gamma_r, truncation) 
+	p_u = 1.0 * C_u * w_u / normalizer(gamma_u, truncation) 
+
+	denom = p_r + p_u
+
+	return p_r ** 2 / denom, p_u ** 2 / denom
+
 class settlement_model:
 
 	def __init__(self, M0 = None, geo = None, D = None):
@@ -65,8 +90,11 @@ class settlement_model:
 		self.dist_mode = mode
 		self.dist_truncation = truncation
 
-	def density(self, thresh, pars, use_geo = False, stage = 'current', mode = 'full', truncation = None):
-		
+
+	def density(self, thresh, pars, model, use_geo = False, stage = 'current', mode = 'full', truncation = None):
+		'''
+			Defaults to model_1 for now, but may be changed. 
+		'''
 		pars = {k : float(pars[k]) for k in pars}  # had a float bug in here somewhere
 
 		redo_dists = (self.dist_mode != mode) |  (stage == 'current') | (stage == 'initial') & (self.dist_type != 'initial') | (truncation != self.dist_truncation)
@@ -76,30 +104,19 @@ class settlement_model:
 		
 		gammas = ('gamma_r', 'gamma_u')
 		g_pars = {k: pars[k] for k in gammas}
-		p_pars = {k: pars[k] for k in pars if k not in gammas}
 		
 		if stage == 'initial': 
 			M_d = self.M0
 		elif stage == 'current':
 			M_d = self.M
 
-		w_rural, w_urban = distance_weights(M_d, self.dists, thresh, **g_pars) 
+		w_r, w_u = distance_weights(M_d, self.dists, thresh, **g_pars) 
 		
-		probs = model_1_probs(w_rural, w_urban, **p_pars) 
+		probs = model(w_r, w_u, **pars) 
 		if use_geo:
 			probs = probs * self.geo
 
 		return probs
-
-	
-
-def model_1_probs(w_rural, w_urban, alpha_r, beta_r, alpha_u, beta_u):
-	p_r = expit(alpha_r * w_rural + beta_r)
-	p_u = expit(alpha_u * w_urban + beta_u)
-
-	denom = p_r + p_u
-
-	return p_r ** 2 / denom, p_u ** 2 / denom
 
 def id_clusters(M):
 

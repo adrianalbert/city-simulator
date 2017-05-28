@@ -4,10 +4,18 @@ from scipy.spatial import distance
 from scipy.special import expit
 from scipy.ndimage.filters import gaussian_filter
 
-def model_1(w_r, w_u, alpha_r, beta_r, alpha_u, beta_u, gamma_r, gamma_u):
+
+def normalizer(gamma, truncation): # check this normalization, make sure we don't need the polar correction factor.
+		
+		if truncation is not None:
+			return 2.0 * np.pi * (1.0 - truncation ** (1.0 - gamma)) / (gamma - 1.0)
+		else:
+			return 2.0 * np.pi * 1.0 / (gamma - 1.0)
+
+def model_1(w_r, w_u, alpha_r, beta_r, alpha_u, beta_u, gamma_r, gamma_u, truncation):
 	
-		p_r = expit(alpha_r * w_r + beta_r)
-		p_u = expit(alpha_u * w_u + beta_u)
+		p_r = expit(alpha_r * w_r / normalizer(gamma_r, truncation) + beta_r)
+		p_u = expit(alpha_u * w_u / normalizer(gamma_r, truncation) + beta_u)
 
 		denom = p_r + p_u
 
@@ -15,13 +23,6 @@ def model_1(w_r, w_u, alpha_r, beta_r, alpha_u, beta_u, gamma_r, gamma_u):
 
 def model_0(w_r, w_u, C_r, C_u, gamma_r, gamma_u, truncation = None):
 
-	def normalizer(gamma, truncation):
-		
-		if truncation is not None:
-			return 2.0 * np.pi * (1.0 - truncation ** (1.0 - gamma)) / (gamma - 1.0)
-		else:
-			return 2.0 * np.pi * 1.0 / (gamma - 1.0)
-	
 	p_r = 1.0 * C_r * w_r / normalizer(gamma_r, truncation) 
 	p_u = 1.0 * C_u * w_u / normalizer(gamma_u, truncation) 
 
@@ -77,30 +78,30 @@ class settlement_model:
 
 		return types
 
-	def set_dists(self, thresh, stage = 'current', mode = 'full', truncation = None):
+	def set_dists(self, thresh, stage = 'current',  truncation = None):
 		
-		print 'recalculating distances'
 		if stage == 'initial': 
-			self.dists = get_dists(self.M0, thresh, mode, truncation)	
+			self.dists = get_dists(self.M0, thresh, truncation)	
 			
 		elif stage == 'current':
-			self.dists = get_dists(self.M, thresh, mode, truncation)
+			self.dists = get_dists(self.M, thresh,  truncation)
 		
 		self.dist_type = stage
-		self.dist_mode = mode
 		self.dist_truncation = truncation
 
 
-	def density(self, thresh, pars, model, use_geo = False, stage = 'current', mode = 'full', truncation = None):
+	def density(self, thresh, pars, model, use_geo = False, stage = 'current',  truncation = None):
 		'''
 			Defaults to model_1 for now, but may be changed. 
 		'''
-		pars = {k : float(pars[k]) for k in pars}  # had a float bug in here somewhere
-
-		redo_dists = (self.dist_mode != mode) |  (stage == 'current') | (stage == 'initial') & (self.dist_type != 'initial') | (truncation != self.dist_truncation)
+		for k in pars:
+			if type(pars[k]) == int:
+				pars[k] = float(pars[k])
+		
+		redo_dists = (stage == 'current') | ((stage == 'initial') & (self.dist_type != 'initial')) | (truncation != self.dist_truncation)
 		
 		if redo_dists:
-			self.set_dists(thresh, stage, mode, truncation)
+			self.set_dists(thresh, stage, truncation)
 		
 		gammas = ('gamma_r', 'gamma_u')
 		g_pars = {k: pars[k] for k in gammas}
@@ -178,9 +179,11 @@ def settlement_types(M,  return_type = 'cell', thresh = 0, centroids = False):
 
 		return rural_cells, urban_cells, unsettled_cells
 
-def get_dists(M, thresh = 0, mode = 'full', truncation = None):
+def get_dists(M, thresh = 0,  truncation = None):
 	
-	def f(j, arr):
+	if truncation is None:
+
+		def f(j, arr):
 			a = np.unique(arr[j,], return_counts=True)
 			if truncation is not None:
 				out = np.array([[a[0][i], a[1][i]] for i in range(a[0].shape[0]) if a[0][i] <= truncation])
@@ -190,8 +193,6 @@ def get_dists(M, thresh = 0, mode = 'full', truncation = None):
 			else:
 				return np.array([[a[0][i], a[1][i]] for i in range(a[0].shape[0])])
 
-	if mode == 'full':
-		
 		rural, urban, unsettled = settlement_types(M, 'cell', thresh)
 		
 		rural_dist_mat = distance.cdist(unsettled, rural, 'euclidean').astype(int)
@@ -202,17 +203,50 @@ def get_dists(M, thresh = 0, mode = 'full', truncation = None):
 
 		return rural_dists, urban_dists
 
-	if mode == 'centroid':
-		rural_clusters, urban_clusters = settlement_types(M, 'cluster', thresh, True)
-		rural_cells, urban_cells, unsettled_cells = settlement_types(M, 'cell', thresh)
+	else:
+		rural, urban, unsettled = settlement_types(M, thresh = thresh)
+		
+		rural_mat = np.zeros(M.shape)
+		urban_mat = np.zeros(M.shape)
 
-		rural_dist_mat = distance.cdist(unsettled_cells, rural_clusters[:,1:], 'euclidean').astype(int)
-		urban_dist_mat = distance.cdist(unsettled_cells, urban_clusters[:,1:], 'euclidean').astype(int)
+		for i in range(rural.shape[0]):
+			rural_mat[tuple(rural[i,])] = 1
 
-		rural_dists    = {i : f(i, rural_dist_mat) for i in range(rural_dist_mat.shape[0])}
-		urban_dists    = {i : f(i, urban_dist_mat) for i in range(urban_dist_mat.shape[0])}
-
+		for i in range(urban.shape[0]):
+			urban_mat[tuple(urban[i,])] = 1 
+	
+		padded_rural_mat = np.pad(rural_mat, truncation, 'constant')
+		padded_urban_mat = np.pad(urban_mat, truncation, 'constant')
+		
+		# this needs fixing: appears to be biased toward low index values in a way that I don't completely understand
+		def f(ix, target, n):
+			pad_ix = ix + n
+			A = target[[slice(j-n, j+n+1) for j in pad_ix]]
+			u_ix = np.where(A == 1)
+			targets  = np.array([u_ix[0], u_ix[1]]).T
+			arr = distance.cdist(np.array([[n,n]]), targets, 'euclidean').astype(int)
+			a = np.unique(arr, return_counts=True) 
+			out = np.array([[a[0][i], a[1][i]] for i in range(a[0].shape[0]) if a[0][i] <= truncation])
+			if len(out) == 0:
+				out = np.array([[1,0]])
+			
+			return out
+		
+		rural_dists = {i : f(unsettled[i], 
+						 padded_rural_mat, 
+						 truncation) for i in range(unsettled.shape[0])}
+		
+		urban_dists = {i : f(unsettled[i], 
+							 padded_urban_mat, 
+							 truncation) for i in range(unsettled.shape[0])}
+		
 		return rural_dists, urban_dists
+
+	
+def type_matrices(M, T):
+	rural, urban, unsettled = settlement_types(M, thresh = T)
+
+	
 
 def distance_weights(M, dists, thresh, gamma_r, gamma_u):
 	def f(i, gamma_r, gamma_u):
@@ -229,6 +263,7 @@ def distance_weights(M, dists, thresh, gamma_r, gamma_u):
 	
 	weights_rural = np.empty(M.shape)
 	weights_urban = np.empty(M.shape)
+	
 	weights_rural.fill(np.nan)
 	weights_urban.fill(np.nan)
 
@@ -257,4 +292,5 @@ def random_mat(L, density = .5, blurred = True, blur = 3, central_city = True):
 	M[M < 1] = 0
 		
 	return M
+
 

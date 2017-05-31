@@ -41,30 +41,32 @@ class mixture_model:
 										 'euclidean') 
 					  for i in self.clusters}
 
-	def density(self, alpha, gamma, components = False):
+	def density(self, alpha, gamma):
 		'''
 		alpha and gamma are each nonnegative vectors the size of self.clusters.keys().
 		'''
+		p = self.mixture_components(gamma, normalized = True)
+		p = p * np.array([[alpha]]).T
+
+		d = np.sum(p, axis = 0)
+		d = d / np.nansum(d)
+		return d
+
+	def mixture_components(self, gamma, normalized = True):
 		def f(j):
 		    vec = sum((self.dists[j][:,i] ** (-gamma[j - 1])) for i in range(self.dists[j].shape[1])) 
 		    mat = np.empty(self.M0.shape)
 		    mat[:] = np.NAN
 		    for i in range(self.unsettled.shape[0]):
 		        mat[tuple(self.unsettled[i])] = vec[i] 
-		    adjusted = mat * self.geo
-		    adjusted = adjusted / np.nansum(adjusted)
-		    return adjusted * alpha[j - 1]
+		    # adjusted = mat * self.geo
+		    if normalized:
+		    	mat = mat / np.nansum(mat)
+		    return mat
 
 		Q = np.array([f(j) for j in range(1,len(self.dists) + 1)])
-		Q = Q / np.nansum(Q)
 
-		if components:
-			return Q
-		else:
-			return np.sum(Q, axis = 0)
-
-		return out
-
+		return Q
 
 	def sample(self, n_samples, **kwargs):
 		d = self.density(**kwargs)
@@ -96,16 +98,55 @@ class mixture_model:
 			lik = lik / X.sum()
 		return lik
 
-	def E_step(self, **pars):
-		p = self.density(components = True, **pars)
-		self.Q = p / p.sum(axis = 0)
+	def EM(self, M1, alpha_0, gamma_0, n_iters, verbose = True, tol = .01, **inner_args):
+		X = M1 - self.M0       # only the new settlements
+		alpha_hat, gamma_hat = alpha_0, gamma_0
+		lik = self.log_likelihood(M1, normalized = True, alpha = alpha_hat, gamma = gamma_hat)
+		print 'll0 : ' + str(np.round(lik, 2))
 
+		for j in range(n_iters):
+			self.E_step(alpha_hat, gamma_hat)
+			alpha_hat, gamma_hat = self.M_step(X, alpha_hat, gamma_hat, **inner_args)
+			if verbose:
+				old_lik = lik
+				lik = self.log_likelihood(M1, normalized = True, alpha = alpha_hat, gamma = gamma_hat)
+				print 'll  : ' + str(np.round(lik, 2))
+				if lik - old_lik < tol: 
+					return alpha_hat, gamma_hat, lik
+		
+		return alpha_hat, gamma_hat, lik
+	
+	def E_step(self, alpha, gamma):
+		
+		p = self.mixture_components(gamma, normalized = True)
+		weighted = p * np.array([[alpha]]).T
+		self.Q = weighted / weighted.sum(axis = 0)
 
+	def M_step(self, X, alpha, gamma, eta, n_inner, inner_tol = .1):
+		
+		new_alpha = np.nansum(X / X.sum() * self.Q, axis = (1,2))
 
+		for i in range(n_inner):
+			grad = self.gradient(X, gamma)
+			new_gamma = gamma + eta * grad
+			if 1.0 / len(gamma) * np.sqrt(np.sum((eta * grad)**2)) < inner_tol:
+				return new_alpha, new_gamma
 
+		return new_alpha, new_gamma
+		
 
+	def gradient(self, X, gamma):
+		'''
+			No gradients for alpha, since these are found in closed form in the M step
+		'''
 
+		f_gamma   = self.mixture_components(gamma,     normalized = False)
+		f_gamma_1 = self.mixture_components(gamma + 1, normalized = False)
+		
+		Z_gamma   = np.nansum(f_gamma,   axis = (1,2))
+		Z_gamma_1 = np.nansum(f_gamma_1, axis = (1,2))
 
+		first_term  = Z_gamma_1 / Z_gamma * np.nansum(X * self.Q, axis = (1, 2))
+		second_term = np.nansum(X * self.Q * f_gamma_1 / f_gamma, axis = (1,2))
 
-
-
+		return gamma * (first_term - second_term)

@@ -2,6 +2,7 @@ import numpy as np
 from scipy.ndimage.filters import gaussian_filter
 from skimage import morphology
 from scipy.special import expit
+from itertools import product
 
 # DENSITIES AND GRADIENTS
 
@@ -18,7 +19,7 @@ def logistic_density(m, **kwargs):
 	M = logistic_components(m, **kwargs)
 	return (M**2).sum(axis = 0) / M.sum(axis = 0)
 
-def logistic_gradient_term(m, p = None, **pars):
+def logistic_gradient_term(m, p = None, use_beta = True, **pars):
 
 	# typically should pass components since they have already 
 	# been calculated, but in case not....
@@ -34,13 +35,19 @@ def logistic_gradient_term(m, p = None, **pars):
 
 	# extract parameters and convert to nicely shaped arrays
 	alpha_arr = np.array([[pars['alpha']]]).T
+	
+	
 	beta_arr  = np.array([[pars['beta' ]]]).T
 	gamma_arr = np.array([[pars['gamma']]]).T
 
 	# compute gradient components
 
 	d_alpha = p * (1 - p) * f_gamma
-	d_beta =  p * (1 - p)
+	if use_beta:
+		d_beta =  p * (1 - p)
+	else:
+		d_beta = np.zeros(shape = p.shape)
+
 	d_gamma   = - alpha_arr * gamma_arr * p * (1 - p) * f_gamma_1
 
 	# arrange as nice array and return
@@ -48,11 +55,14 @@ def logistic_gradient_term(m, p = None, **pars):
 
 	return dp
 
+def restricted_logistic_gradient_term(m, p, **pars):
+	return logistic_gradient_term(m, p, use_beta = False, **pars) 
+
 ## Linear model specification
 def linear_components(m, alpha, gamma):
 	f = m.distance_feature(np.array([[np.dot(gamma, m.get_types())]]).T, 
 						   partitioned = True) 
-	return np.array([[alpha]]).T * f
+	return np.array([[alpha]]).T * f / np.array([[normalizer(gamma, extent = None)]]).T
 	
 def linear_density(m, **kwargs):
 	M = linear_components(m, **kwargs)
@@ -70,20 +80,24 @@ def linear_gradient_term(m, p = None, **kwargs):
 	gamma_arr = np.array([[kwargs['gamma']]]).T
 
 	d_alpha = p / alpha_arr
-	d_gamma = - gamma_arr * alpha_arr * f_gamma_1
+	d_gamma = alpha_arr * gamma_arr * (np.array([[normalizer(gamma + 1)]]).T - f_gamma_1) / np.array([[normalizer(gamma) ** 2]]).T
 
 	dp = np.array([d_alpha, d_gamma])
 	return dp
 
 ## Model types
 models = {
-		  'logistic': {'components' : logistic_components, # sigmoid model
-					   'density'    : logistic_density, 
+		  'logistic': {'components'      : logistic_components, # sigmoid model
+					   'density'         : logistic_density, 
 					   'gradient_term'   : logistic_gradient_term},
 
-		  'linear'  : {'components' : linear_components, # ema's original model
-					   'density'    : linear_density, 
-					   'gradient_term'   : linear_gradient_term}
+		  'linear'  : {'components'      : linear_components, # ema's original model
+					   'density'         : linear_density, 
+					   'gradient_term'   : linear_gradient_term},
+
+		   'restricted_logistic'  : {'components'    : logistic_components, 
+					   				 'density'       : logistic_density, 
+					   				 'gradient_term' : restricted_logistic_gradient_term},
 		 }
 
 ## gradient computation
@@ -144,5 +158,17 @@ def cubic(a, b, c, d):
 	return x
 
 def distance_approximation(r_0, r_1, theta, gamma):
+	
 	return 2 * theta * (r_0 ** (2.0 - gamma) - r_1 ** (2.0 - gamma)) / (gamma - 2.0)
 
+def normalizer(gamma, extent = 50):
+	# assumes centered -- it may be useful to consider near the corners down the line. 
+	# this difference will mostly matter for low gamma. 
+	
+	if extent is None:
+		extent = 50
+
+	x = np.arange(0, extent + 1) ** 2.0
+	y = np.arange(1, extent + 1) ** 2.0
+	xy = product(x, y)
+	return 4 * sum([np.sqrt(x + y) ** (-gamma)  for (x, y) in xy])

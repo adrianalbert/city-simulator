@@ -6,18 +6,18 @@ class simulator(settlement_model):
 
 		settlement_model.__init__(self, **kwargs)
 
-	def sample(self, **kwargs):
+	def sample(self, model,  **pars):
 		'''
 			Forward step
 		'''
 
-		prob = self.logistic_density(**kwargs)
+		prob = models[model]['density'](self, **pars)
 		rands = np.random.rand(*prob.shape)
 		new_mat = (rands < prob) * 1
 
 		return new_mat
 
-	def dynamics(self, T_vec, n_iters = 5, verbose = True, **kwargs):
+	def dynamics(self, model, T_vec, n_iters = 5, verbose = True, return_type = 'plain', **pars):
 		'''
 			Defaults to model_1 for now
 		'''
@@ -25,15 +25,17 @@ class simulator(settlement_model):
 		return_mat = self.M.copy()
 		for i in times:
 			self.update_morphology() # might want to move this somewhere else
-			self.edt()
 			self.partition_clusters(T_vec)
 			self.distance_variables()
 
-			s = self.sample(**kwargs)
+			s = self.sample(model, **pars)
 			self.M += s
 			return_mat += i * s
 			if verbose:
 				print 'Step ' + str(i - 1) + ' completed'
+
+		if return_type == 'plain':
+			return self.M
 
 		return_mat[return_mat == 0] = np.nan 	
 		return_mat -= 1

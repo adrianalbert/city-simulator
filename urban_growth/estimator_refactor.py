@@ -1,4 +1,5 @@
 from urban_growth.model_refactor import *
+from scipy.optimize import minimize
 
 class estimator(settlement_model):
 
@@ -32,7 +33,8 @@ class estimator(settlement_model):
 
 		for j in range(n_iters):
 			self.E_step(model = model, **pars_hat)
-			pars_hat = self.M_step(X, model, pars_hat, **inner_args)
+			pars_hat = self.packaged_M_step(X, model, pars_hat, **inner_args)
+			# pars_hat = self.M_step(X, model, pars_hat, **inner_args)
 			if verbose & (j % print_every == 0):
 				old_lik = lik
 				lik = self.log_likelihood(M1,
@@ -71,6 +73,37 @@ class estimator(settlement_model):
 		# if we have run through n_inner, return current estimates.
 		return pars
 
+	# consider doing this as basin-hopping
+	def packaged_M_step(self, X, model, pars, eta, n_inner, inner_tol = .1):
+		
+		def f(pars): 
+			
+			pars = np.reshape(pars, (3, 2))
+			pars = from_array(pars)
+			
+			return - self.log_likelihood(self.M0 + X, model, normalized = True, **pars)
+
+		def grad_func(pars):
+			
+			pars = np.reshape(pars, (3, 2))
+			pars = from_array(pars)
+
+			e_grad = - applyself.expected_gradient(X, model, **pars)
+			return np.reshape(e_grad, 6)
+
+		pars_0 = to_array(**pars)
+		res = minimize(f, 
+		               pars_0, 
+		               method = 'BFGS', 
+		               # jac = grad_func, 
+		               options = {'eps' : .000001},
+		               tol = .0000001)
+
+		pars = np.reshape(res.x, (3, 2))
+		pars = from_array(pars)
+		
+		return pars
+
 	def expected_gradient(self, X, model, **pars):
 		'''
 		See notes for formula
@@ -79,6 +112,38 @@ class estimator(settlement_model):
 		grad = gradient(self, X, model, **pars)
 		expected_grad = np.nansum(np.array([self.Q]) * grad, axis = (2, 3)) / np.nansum(X)
 		return expected_grad
+
+	def ML(self, X, model, pars):
+		shape = len(pars), len(pars[pars.keys()[0]])
+		def f(pars): 
+			
+			pars = np.reshape(pars, shape)
+			pars = from_array(pars)
+			
+			return - self.log_likelihood(self.M0 + X, model, normalized = True, **pars)
+
+		def grad_func(pars):
+			# doesn't work yet
+			
+			pars = np.reshape(pars, shape)
+			pars = from_array(pars)
+
+			e_grad = - applyself.expected_gradient(X, model, **pars)
+			return np.reshape(e_grad, shape[0] * shape[1])
+
+		pars_0 = to_array(**pars)
+		res = minimize(f, 
+		               pars_0, 
+		               method = 'BFGS', 
+		               # jac = grad_func, 
+		               options = {'eps' : .000001},
+		               tol = .0000001)
+
+		pars = np.reshape(res.x, shape)
+		pars = from_array(pars)
+		
+		return pars, res.fun, res.hess_inv
+
 
 
 

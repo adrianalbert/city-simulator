@@ -7,15 +7,30 @@ from itertools import product
 # DENSITIES AND GRADIENTS
 
 
+def distance_feature_calc(m, gamma, dist_approx = False, component = None):
+	if component is not None:
+		types = m.get_types()[component]
+	else:
+		types = m.get_types()
+	if dist_approx:
+		f = m.distance_feature(np.array([[np.dot(gamma, types)]]).T, 
+							   partitioned = True) 
+	else:
+		f = m.dist_array_feature(gamma, component)
+
+	return f
 
 ## Logistic model specification
-def logistic_components(m, alpha, beta, gamma):
-	f = m.distance_feature(np.array([[np.dot(gamma, m.get_types())]]).T, 
-						   partitioned = True) 
+def logistic_components(m, alpha, beta, gamma, dist_approx = False):
+	
+	f = distance_feature_calc(m, gamma, dist_approx)
+
 	M = expit(np.array([[alpha]]).T * expit(f) + np.array([[beta]]).T)
 	return M
 
 def logistic_density(m, **kwargs):
+
+	f = distance_feature_calc(m, gamma, dist_approx)
 	M = logistic_components(m, **kwargs)
 	return (M**2).sum(axis = 0) / M.sum(axis = 0)
 
@@ -59,10 +74,35 @@ def restricted_logistic_gradient_term(m, p, **pars):
 	return logistic_gradient_term(m, p, use_beta = False, **pars) 
 
 ## Linear model specification
-def linear_components(m, alpha, gamma):
-	f = m.distance_feature(np.array([[np.dot(gamma, m.get_types())]]).T, 
-						   partitioned = True) 
-	return np.array([[alpha]]).T * f / np.array([[normalizer(gamma, extent = None)]]).T
+def linear_components(m, alpha, gamma, dist_approx = False, use_grad = False, component = None):
+	
+	gamma = 1.0 * gamma
+	# f = distance_feature_calc(m, gamma, dist_approx, component)
+	if use_grad:
+		f, df = m.dist_array_feature(gamma, component, deriv = True)
+		norm, dnorm = normalizer(gamma, deriv = True)
+	else:
+		f = m.dist_array_feature(gamma, component, deriv = False)
+		norm = normalizer(gamma)
+	
+	# component itself
+	c = np.array([[alpha]]).T * f / np.array([[norm]]).T
+	
+	if component is None:
+		norm = np.expand_dims(norm, axis = 1)
+		norm = np.expand_dims(norm, axis = 2)
+		if use_grad:
+			dnorm = np.expand_dims(dnorm, axis = 1)
+			dnorm = np.expand_dims(dnorm, axis = 2)
+
+	if use_grad:
+		d_alpha = c / np.expand_dims(np.expand_dims(alpha, 1), 1)
+		d_gamma = (df * norm - dnorm * f) / norm ** 2	
+		grads = np.concatenate((d_alpha[np.newaxis,], d_gamma[np.newaxis,]))
+		return c, grads
+	
+	else:
+		return c
 	
 def linear_density(m, **kwargs):
 	M = linear_components(m, **kwargs)
@@ -85,6 +125,16 @@ def linear_gradient_term(m, p = None, **kwargs):
 	dp = np.array([d_alpha, d_gamma])
 	return dp
 
+def linear_mixture_density(m, **pars):
+	pi = pars['pi']
+	pars.pop('pi')
+
+	M = linear_components(m, **pars)
+	return (np.array([[pi]]).T * M).sum(axis = 0)  # check broadcasting
+
+def linear_mixture_gradient_term():
+	print 'not implemented'
+
 ## Model types
 models = {
 		  'logistic': {'components'      : logistic_components, # sigmoid model
@@ -98,6 +148,10 @@ models = {
 		   'restricted_logistic'  : {'components'    : logistic_components, 
 					   				 'density'       : logistic_density, 
 					   				 'gradient_term' : restricted_logistic_gradient_term},
+		   
+		   'linear_mixture' :       {'components'    : linear_components, 
+					   				 'density'       : linear_mixture_density, 
+					   				 'gradient_term' : linear_mixture_gradient_term},
 		 }
 
 ## gradient computation
@@ -161,7 +215,7 @@ def distance_approximation(r_0, r_1, theta, gamma):
 	
 	return 2 * theta * (r_0 ** (2.0 - gamma) - r_1 ** (2.0 - gamma)) / (gamma - 2.0)
 
-def normalizer(gamma, extent = 50):
+def normalizer(gamma, extent = 50, deriv = False):
 	# assumes centered -- it may be useful to consider near the corners down the line. 
 	# this difference will mostly matter for low gamma. 
 	
@@ -171,4 +225,12 @@ def normalizer(gamma, extent = 50):
 	x = np.arange(0, extent + 1) ** 2.0
 	y = np.arange(1, extent + 1) ** 2.0
 	xy = product(x, y)
-	return 4 * sum([np.sqrt(x + y) ** (-gamma)  for (x, y) in xy])
+	norm = 4 * sum([np.sqrt(x + y) ** (-gamma)  for (x, y) in xy])
+	if deriv:
+		x = np.arange(0, extent + 1) ** 2.0
+		y = np.arange(1, extent + 1) ** 2.0
+		xy = product(x, y)
+		dnorm = - 4 * sum([np.sqrt(x + y) ** (-gamma) * np.log(np.sqrt(x + y)) for (x, y) in xy])
+		return norm, dnorm
+	return norm
+	

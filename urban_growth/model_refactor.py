@@ -15,7 +15,7 @@ class settlement_model:
 		if M0 is not None:
 			self.set_M0(M0 = M0)
 
-	def update_morphology(self):
+	def update_morphology(self, dist_approx = False, trunc = 50):
 		# generate clusters
 		mask = morphology.label(self.M, connectivity = 1)
 		self.clusters = {i : np.array(np.where(mask == i)).T for i in np.unique(mask) if i > 0}
@@ -24,10 +24,11 @@ class settlement_model:
 		a = np.where(self.M == 0)
 		self.unsettled = np.array([[a[0][i], a[1][i]] for i in range(len(a[0]))])
 
-		# areas
 		self.areas = {i : self.clusters[i].shape[0] for i in self.clusters}
-		self.edt()
-
+		if dist_approx:
+		# areas	
+			self.edt()
+		
 	def set_M0(self, M0 = None, **kwargs):
 		if M0 is not None:
 			self.M0 = M0
@@ -111,3 +112,53 @@ class settlement_model:
 		        arr[d, k - 1] = 1
 
 		self.types = arr
+
+	# full distance calculations
+
+	def make_dist_array(self, trunc):
+		D = np.zeros((self.types.shape[0], trunc, self.M0.shape[0],self.M0.shape[1] ))
+
+		type_indices = {i : np.concatenate(
+		    [self.clusters[j] for j in self.clusters if self.types[i][j-1] == 1]) 
+		                for i in range(self.types.shape[0])}
+
+		for k in range(D.shape[0]):
+		    ix = type_indices[k]
+		    dists = distance.cdist(self.unsettled, ix, 'euclidean').astype(int)
+		    for i in range(dists.shape[0]):
+		        a = np.unique(dists[i], return_counts=True)
+		        d = a[0][a[0] < trunc]
+		        f = a[1][a[0] < trunc]
+		        D[k, d, self.unsettled[i][0], self.unsettled[i][1]] = f
+		        
+		self.D = D
+
+	def dist_array_feature(self, gamma, component = None, deriv = False):
+		t = self.D.shape[1]
+		t = np.arange(1, t+1)
+		
+		if component is None:
+			t = t[np.newaxis,:]
+		
+		v = t ** (- 1.0 * np.array([gamma]).T) 
+		
+		v = np.expand_dims(v, axis = 2)
+		v = np.expand_dims(v, axis = 3)
+
+		t = np.expand_dims(t, axis = 2)
+		t = np.expand_dims(t, axis = 3)
+
+		if component is not None:
+			intermediate = self.D[component] * v
+			out = intermediate.sum(axis = 0)
+			if deriv:
+				df = - (intermediate * np.log(t)).sum(axis = 0)
+		else:
+			out = (self.D * v).sum(axis = 1)
+			if deriv:
+				df = - (self.D * v * np.log(t)).sum(axis = 1)
+		if deriv:
+			return out, df
+		
+		return out
+

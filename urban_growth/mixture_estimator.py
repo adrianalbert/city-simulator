@@ -8,6 +8,37 @@ class mixture_estimator(estimator):
 
 	# first test is maybe computing log-likelihood. 
 
+	def mixture_log_likelihood(self, X, model, normalized = False, use_grad = False, **pars):
+		pi = pars['pi']
+		pars.pop('pi')
+
+		if use_grad:
+			c, grads = models[model]['components'](self, use_grad = use_grad, **pars)	
+		else:
+			c = models[model]['components'](self, **pars) # components
+		
+		d = (np.array([[pi]]).T * c).sum(axis = 0)    # density
+
+		ll = np.nansum(X*np.log(d)+(1-X)*np.log(1-d))
+
+		if normalized: 
+			ll = ll / np.isfinite(X).sum()
+
+		# THE BELOW IS WRONG FOR NOW, POSSIBLY COME BACK TO THIS. 
+		# if use_grad:
+		# 	pi = np.expand_dims(np.expand_dims(np.expand_dims(pi, 0), 2), 3)
+		# 	coef = X / d + (1 - X) / (1 - d)
+		# 	component_grad = np.nansum(pi * coef * grads, axis = (2, 3))
+		# 	d_pi = np.nansum(coef * c, axis = (1, 2))
+		# 	d_pi = np.expand_dims(d_pi, 0) 
+		# 	print component_grad.shape, d_pi.shape
+		# 	grad = np.concatenate((component_grad, d_pi))
+
+		# 	if normalized:
+		# 		grad = grad / np.isfinite(X).sum()
+		# 	return ll, grad	
+		return ll
+
 	def EM(self, M1, model, pars_0, n_iters, use_grad = False, decoupled = False, verbose = True, print_every = 10, tol = .0001):
 		X = M1 - self.M0       # only the new settlements
 		pars_hat = pars_0
@@ -22,7 +53,7 @@ class mixture_estimator(estimator):
 		for j in range(n_iters):
 			self.E_step(X, model = model, **pars_hat)
 			pars_hat = self.M_step(X, model, use_grad, decoupled,  **pars_hat)
-			if verbose & (j % print_every == 0):
+			if verbose & ((j + 1) % print_every == 0):
 				old_lik = lik
 				lik = self.log_likelihood(M1,
 										  model = model, 
@@ -72,14 +103,15 @@ class mixture_estimator(estimator):
 			if use_grad:
 				c, grads = models[model]['components'](self, use_grad = use_grad, component = component, **pars)	
 				coef = Q * (X / c - (1 - X) / (1 - c))
+				
 				coef = np.expand_dims(coef, axis = 0)
-				grad = np.nansum(coef * grads, axis = (1, 2, 3)) / np.isfinite(X).sum()
+				grad = np.nansum(coef * grads, axis = (1, 2)) / np.isfinite(X).sum()
+				
 			else:
 				c = models[model]['components'](self, use_grad = use_grad, component = component, **pars)	
 
 			ll_comps = X * np.log(c) + (1 - X) * np.log(1 - c)
 			E_ll = np.nansum(Q * ll_comps) / np.isfinite(X).sum()
-
 
 			if use_grad:			
 				return - E_ll, - grad
@@ -93,7 +125,7 @@ class mixture_estimator(estimator):
 						   pars_0, 
 						   method = 'BFGS', 
 						   jac = use_grad, 
-						   options = {'disp' : False})
+						   options = {'disp' : True})
 			pars = np.reshape(res.x, (2, 2))
 		else: 
 			def h(k):
@@ -105,7 +137,7 @@ class mixture_estimator(estimator):
 				               args = (k), 
 						   	   method = 'BFGS', 
 						       jac = use_grad, 
-						       options = {'disp' : False})
+						       options = {'disp' : True})
 				return res.x
 
 			pars = np.array([h(k) for k in range(self.types.shape[0])]).T
@@ -114,7 +146,7 @@ class mixture_estimator(estimator):
 		pars['pi'] = pi_hat
 		return pars
 
-	def ML(self, X, model, **pars):
+	def ML(self, X, model, opts = {'eps' : .0000001, 'disp' : False},  **pars):
 		
 		def from_array_2(arr):	
 			d = {'alpha' : arr[0], 'gamma' : arr[-1]}
@@ -129,15 +161,21 @@ class mixture_estimator(estimator):
 			pars = np.reshape(pars, shape)
 			pars = from_array_2(pars)
 			
-			return - self.log_likelihood(self.M0 + X, model, normalized = True, **pars)
+			ll = self.mixture_log_likelihood(X, 
+			                                     model, 
+			                                     normalized = True, 
+			                                     use_grad = False, 
+			                                     **pars)
+			
+			return - ll
 
 		pars_0 = to_array(**pars)
 		pars_0 = pars_0.reshape(shape[0] * shape[1])
 		res = minimize(f, 
 					   pars_0, 
 					   method = 'BFGS', 
-					   # jac = grad_func, 
-					   options = {'eps' : .000001},
+					   jac = False, 
+					   options = opts,
 					   tol = .0000001)
 
 		pars = np.reshape(res.x, shape)

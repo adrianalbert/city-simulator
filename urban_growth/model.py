@@ -3,28 +3,33 @@ from skimage import morphology
 from scipy.spatial import distance
 from scipy.special import expit
 from scipy.ndimage.filters import gaussian_filter
+from itertools import product
 
-
-def normalizer(gamma, truncation): # check this normalization, make sure we don't need the polar correction factor.
-		
-		if truncation is not None:
-			return 2.0 * np.pi * (1.0 - truncation ** (1.0 - gamma)) / (gamma - 1.0)
-		else:
-			return 2.0 * np.pi * 1.0 / (gamma - 1.0)
-
-def model_1(w_r, w_u, alpha_r, beta_r, alpha_u, beta_u, gamma_r, gamma_u, truncation):
+def normalizer(gamma, extent = 50):
+	# assumes centered -- it may be useful to consider near the corners down the line. 
+	# this difference will mostly matter for low gamma. 
 	
-		p_r = expit(alpha_r * w_r / normalizer(gamma_r, truncation) + beta_r)
-		p_u = expit(alpha_u * w_u / normalizer(gamma_r, truncation) + beta_u)
+	if extent is None:
+		extent = 50
+
+	x = np.arange(0, extent + 1) ** 2.0
+	y = np.arange(1, extent + 1) ** 2.0
+	xy = product(x, y)
+	return 4 * sum([np.sqrt(x + y) ** (-gamma)  for (x, y) in xy])
+
+def model_1(w_r, w_u, alpha_r, alpha_u, beta_r, beta_u, gamma_r, gamma_u, truncation = None):
+		
+		p_r = expit(alpha_r * w_r   + beta_r)
+		p_u = expit(alpha_u * w_u   + beta_u)
 
 		denom = p_r + p_u
 
 		return p_r ** 2 / denom, p_u ** 2 / denom
 
-def model_0(w_r, w_u, C_r, C_u, gamma_r, gamma_u, truncation = None):
+def model_0(w_r, w_u, alpha_r, alpha_u, gamma_r, gamma_u, truncation = None):
 
-	p_r = 1.0 * C_r * w_r / normalizer(gamma_r, truncation) 
-	p_u = 1.0 * C_u * w_u / normalizer(gamma_u, truncation) 
+	p_r = 1.0 * alpha_r * w_r / normalizer(gamma_r, truncation) 
+	p_u = 1.0 * alpha_u * w_u / normalizer(gamma_u, truncation) 
 
 	denom = p_r + p_u
 
@@ -42,10 +47,11 @@ class settlement_model:
 		if D is not None: 
 			self.D = D
 
-		self.dists     = None
-		self.dist_type = None
-		self.dist_mode = None
+		self.dists           = None
+		self.dist_type       = None
 		self.dist_truncation = None
+
+		self.unsettled = None
 
 	def set_M0(self, M0 = None, **kwargs):
 		if M0 is not None:
@@ -54,6 +60,9 @@ class settlement_model:
 			self.M0 = random_mat(**kwargs)
 
 		self.M = self.M0.copy()
+		
+		a = np.where(self.M0 == 0)
+		self.unsettled = np.array([[a[0][i], a[1][i]] for i in range(len(a[0]))])
 
 	def get_M0(self):
 		return self.M0
@@ -174,7 +183,7 @@ def settlement_types(M,  return_type = 'cell', thresh = 0, centroids = False):
 
 		rural_cells = np.array([[a[0][i], a[1][i]] for i in range(len(a[0]))])
 
-		a = np.where(mask == 0)
+		a = np.where(mask == 0) # question: will this give wrong answers when most of the area is settled?? 
 		unsettled_cells = np.array([[a[0][i], a[1][i]] for i in range(len(a[0]))])
 
 		return rural_cells, urban_cells, unsettled_cells
@@ -246,8 +255,6 @@ def get_dists(M, thresh = 0,  truncation = None):
 def type_matrices(M, T):
 	rural, urban, unsettled = settlement_types(M, thresh = T)
 
-	
-
 def distance_weights(M, dists, thresh, gamma_r, gamma_u):
 	def f(i, gamma_r, gamma_u):
 		
@@ -293,4 +300,37 @@ def random_mat(L, density = .5, blurred = True, blur = 3, central_city = True):
 		
 	return M
 
+def to_vec(pars, model = 'model_0'):
+    if model == 'model_0':
+        par_vec = np.array([pars['alpha_r'], 
+                            pars['alpha_u'], 
+                            pars['gamma_r'], 
+                            pars['gamma_u']])
+
+    elif model == 'model_1':
+        par_vec = np.array([pars['alpha_r'], 
+                            pars['alpha_u'],
+                            pars['beta_r'], 
+                            pars['beta_u'],
+                            pars['gamma_r'], 
+                            pars['gamma_u']])
+        
+    return par_vec
+
+def from_vec(par_vec, model = 'model_0'):
+    if model == 'model_0':
+        pars = {'alpha_r' : par_vec[0],
+                'alpha_u' : par_vec[1],
+                'gamma_r' : par_vec[2],
+                'gamma_u' : par_vec[3]}
+
+    elif model == 'model_1':
+        pars = {'alpha_r' : par_vec[0],
+                'alpha_u' : par_vec[1],
+                'beta_r'  : par_vec[2],
+                'beta_u'  : par_vec[3],
+                'gamma_r' : par_vec[4],
+                'gamma_u' : par_vec[5]}
+            
+    return pars
 

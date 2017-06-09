@@ -18,20 +18,25 @@ class simulator(settlement_model):
 
 		return new_mat
 
-	def dynamics(self, n_iters = 5, verbose = True, **kwargs):
+	def dynamics(self, n_iters = 5,  return_type = 'plain', verbose = True, **kwargs):
 		'''
-			Defaults to model_1 for now
+
 		'''
 		times = np.arange(2, n_iters + 2)
 		return_mat = self.M.copy()
 		for i in times:
-			s = self.sample(stage = 'current', **kwargs)
+			s = self.sample(**kwargs)
 			self.M += s
 			return_mat += i * s
 			if verbose:
 				print 'Step ' + str(i - 1) + ' completed'
 
-		return_mat[return_mat == 0] = np.nan 	
-		return_mat -= 1
-		
-		return return_mat
+		if return_type == 'plain':
+			print 'plain'
+			return self.M
+
+		else:
+			return_mat[return_mat == 0] = np.nan 	
+			return_mat -= 1
+			
+			return return_mat

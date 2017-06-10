@@ -1,4 +1,5 @@
 from urban_growth.model import *
+from urban_growth.components import *
 
 class simulator(settlement_model):
 
@@ -6,37 +7,29 @@ class simulator(settlement_model):
 
 		settlement_model.__init__(self, **kwargs)
 
-	def sample(self, **kwargs):
+	def sample(self, **pars):
 		'''
-			Forward step
+		Forward step
 		'''
-
-		probs = self.density(**kwargs)
-		prob = probs[0] + probs[1]
+		prob = density(self, self.model, **pars)
 		rands = np.random.rand(*prob.shape)
 		new_mat = (rands < prob) * 1
-
 		return new_mat
 
-	def dynamics(self, n_iters = 5,  return_type = 'plain', verbose = True, **kwargs):
-		'''
-
-		'''
+	def dynamics(self, T_vec, n_iters = 5, verbose = True,  trunc = 50, **pars):
+		
 		times = np.arange(2, n_iters + 2)
-		return_mat = self.M.copy()
-		for i in times:
-			s = self.sample(**kwargs)
-			self.M += s
-			return_mat += i * s
+		
+		for i in times:	
+			
+			self.partition_clusters(T_vec)
+			self.update_morphology() # might want to move this somewhere else
+			self.make_dist_array(trunc = trunc)
+			s = self.sample(**pars)
+			
+			self.M  += s
+			
 			if verbose:
 				print 'Step ' + str(i - 1) + ' completed'
-
-		if return_type == 'plain':
-			print 'plain'
-			return self.M
-
-		else:
-			return_mat[return_mat == 0] = np.nan 	
-			return_mat -= 1
-			
-			return return_mat
+	
+		return self.M

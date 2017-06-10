@@ -6,11 +6,31 @@ from utility import *
 # MODEL SPECIFICATIONS 
 ################################################################################
 
-def logistic_components(m, alpha, beta, gamma):
-## Logistic model specification (needs work)	
-	f = distance_feature(m, gamma)
+def logistic_density(m, alpha, gamma, beta, use_grad = False):
+	'''
+	Alpha and gamma are vectors, beta is a scalar
+	get gradient later
+	'''
+	if use_grad: 
+		c, d_theta = linear_components(m, alpha, gamma, use_grad = True)
+	else:
+		c = linear_components(m, alpha, gamma)
+	
+	M = expit(np.nansum(c, axis = 0) + beta)
 
-	M = expit(np.array([[alpha]]).T * expit(f) + np.array([[beta]]).T)
+	if use_grad:	
+
+		# d_theta = np.transpose(d_theta, (1, 0, 2, 3))
+		n_theta = d_theta.shape[0] * d_theta.shape[1]
+		d_theta = np.reshape(d_theta, (n_theta, m.M0.shape[0], m.M0.shape[1]))
+		d_beta = np.ones((m.M0.shape[0], m.M0.shape[1]))
+		
+
+		d_beta = np.expand_dims(d_beta, axis = 0)
+
+		d_pars = np.concatenate((d_theta, d_beta)) * M * (1 - M)
+		return M, d_pars
+
 	return M
 
 ## Linear model specification, think this one is ok
@@ -46,20 +66,23 @@ def linear_components(m, alpha, gamma, use_grad = False, component = None):
 
 # deprecate both density functions in favor of:
 def density(m, model, **pars):
-	pi = pars['pi']
-	pars.pop('pi')
+	if model == 'linear':
+		pi = pars['pi']
+		pars.pop('pi')
 
-	M = models[model]['components'](m, **pars)
-	return (np.array([[pi]]).T * M).sum(axis = 0)  	
+		M = models[model]['components'](m, **pars)
+		return (np.array([[pi]]).T * M).sum(axis = 0)  	
+	elif model == 'logistic':
+		return logistic_density(m, **pars)
+
+
 
 ################################################################################
 # HELPER FUNCTIONS FOR MODELS
 ################################################################################
 
 models = {
-		  'logistic': {'components' : logistic_components, # sigmoid model
-					   'par_names'  : ['alpha', 'beta', 'gamma', 'pi']},
-
+		  
 		  'linear'  : {'components' : linear_components, # ema's original model
 					   'par_names'  :  ['alpha', 'gamma', 'pi']}
 		  }

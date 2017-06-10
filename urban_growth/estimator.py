@@ -10,7 +10,29 @@ class estimator(settlement_model):
 
 	# first test is maybe computing log-likelihood. 
 
-	def log_likelihood(self, X, normalized = False, use_grad = False, **pars):
+	def logistic_log_likelihood(self, X, normalized = False, use_grad = False, **pars):
+		
+		if use_grad:
+			d, grads = logistic_density(self, use_grad = use_grad, **pars)
+		else:
+			d = logistic_density(self,  **pars)
+		
+		ll = np.nansum(X*np.log(d)+(1-X)*np.log(1-d))
+		if use_grad:
+			coef = X / d - (1 - X) / (1 - d)
+			grad = np.nansum(coef * grads, axis = (1, 2))
+
+		if normalized: 
+			ll = ll / np.isfinite(X).sum()
+			if use_grad:
+				grad = grad / np.isfinite(X).sum()
+		
+		if use_grad:
+			return ll, grad
+		return ll
+
+	def mixture_log_likelihood(self, X, normalized = False, use_grad = False, **pars):
+		
 		pi = pars['pi']
 		pars.pop('pi')
 
@@ -26,7 +48,7 @@ class estimator(settlement_model):
 		if normalized: 
 			ll = ll / np.isfinite(X).sum()
 
-		# THE BELOW IS WRONG FOR NOW, POSSIBLY COME BACK TO THIS. 
+
 		if use_grad:
 			
 			coef = X / d - (1 - X) / (1 - d)
@@ -78,3 +100,43 @@ class estimator(settlement_model):
 		pars = from_array(pars, self.model)
 		
 		return pars, - res.fun, res.hess_inv
+
+	def logistic_ML(self, X, pars, use_grad = False, opts = {'disp' : False}):
+		if use_grad:
+			def f(pars):
+				beta = pars[-1]
+				n = len(pars[:-1]) / 2
+				alpha = pars[:n]
+				gamma = pars[n:-1]
+
+				ll, grad = self.logistic_log_likelihood(X, True, True, 
+				                                  alpha = alpha, 
+				                                  beta = beta, 
+				                                  gamma = gamma)
+
+				return -ll, -grad
+		else:
+			def f(pars):
+				beta = pars[-1]
+				n = len(pars[:-1]) / 2
+				alpha = pars[:n]
+				gamma = pars[n:-1]
+
+				ll = self.logistic_log_likelihood(X, True, False, 
+				                                  alpha = alpha, 
+				                                  beta = beta, 
+				                                  gamma = gamma)
+
+				return -ll
+
+		pars_0 = np.concatenate((pars['alpha'], pars['gamma'], pars['beta']))
+
+		res = minimize(f, 
+				   pars_0, 
+				   method = 'BFGS', 
+				   jac = use_grad, # implement eventually
+				   options = opts,
+				   tol = .0000001)
+
+		return res.x, - res.fun, res.hess_inv
+

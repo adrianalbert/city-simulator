@@ -12,6 +12,7 @@ class simulator(settlement_model):
 		Forward step
 		'''
 		prob = density(self, self.model, **pars)
+		prob = prob * self.geo
 		rands = np.random.rand(*prob.shape)
 		new_mat = (rands < prob) * 1
 		return new_mat

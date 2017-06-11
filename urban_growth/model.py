@@ -15,10 +15,12 @@ class settlement_model:
 ################################################################################
 
 	def __init__(self, M0 = None, geo = None, model = None):
-		if geo is not None:
-			self.geo = geo
 		if M0 is not None:
 			self.set_M0(M0 = M0)
+		if geo is not None:
+			self.geo = geo
+		else:
+			self.geo = np.ones(self.M0.shape[0], self.M0.shape[1])
 		if model is not None:
 			self.set_model(model)
 		

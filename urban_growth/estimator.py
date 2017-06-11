@@ -17,10 +17,12 @@ class estimator(settlement_model):
 		else:
 			d = logistic_density(self,  **pars)
 		
+		d = d * self.geo
+
 		ll = np.nansum(X*np.log(d)+(1-X)*np.log(1-d))
 		if use_grad:
 			coef = X / d - (1 - X) / (1 - d)
-			grad = np.nansum(coef * grads, axis = (1, 2))
+			grad = np.nansum(self.geo * coef * grads, axis = (1, 2))
 
 		if normalized: 
 			ll = ll / np.isfinite(X).sum()
@@ -42,6 +44,8 @@ class estimator(settlement_model):
 			c = models[self.model]['components'](self, **pars) # components
 		
 		d = (np.array([[pi]]).T * c).sum(axis = 0)    # density
+
+		d = d * self.geo
 
 		ll = np.nansum(X*np.log(d)+(1-X)*np.log(1-d))
 

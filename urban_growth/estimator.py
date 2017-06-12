@@ -105,7 +105,7 @@ class estimator(settlement_model):
 		
 		return pars, - res.fun, res.hess_inv
 
-	def logistic_ML(self, X, pars, use_grad = False, opts = {'disp' : False}):
+	def logistic_ML(self, X, pars, use_grad = False, opts = {'disp' : False}, tol = .0000001):
 		if use_grad:
 			def f(pars):
 				beta = pars[-1]
@@ -121,8 +121,8 @@ class estimator(settlement_model):
 				return -ll, -grad
 		else:
 			def f(pars):
-				beta = pars[-1]
-				n = len(pars[:-1]) / 2
+				beta  = pars[-1]
+				n     = len(pars[:-1]) / 2
 				alpha = pars[:n]
 				gamma = pars[n:-1]
 
@@ -140,7 +140,7 @@ class estimator(settlement_model):
 				   method = 'BFGS', 
 				   jac = use_grad, # implement eventually
 				   options = opts,
-				   tol = .0000001)
+				   tol = tol)
 
 		return res.x, - res.fun, res.hess_inv
 

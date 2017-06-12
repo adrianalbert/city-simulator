@@ -17,15 +17,17 @@ class simulator(settlement_model):
 		new_mat = (rands < prob) * 1
 		return new_mat
 
-	def dynamics(self, T_vec, n_iters = 5, verbose = True,  trunc = 50, **pars):
+	def dynamics(self, T_vec, n_iters = 5, verbose = True, **pars):
 		
 		times = np.arange(2, n_iters + 2)
 		
 		for i in times:	
 			
-			self.partition_clusters(T_vec)
 			self.update_morphology() # might want to move this somewhere else
-			self.make_dist_array(trunc = trunc)
+			self.make_dist_array()
+			self.partition_clusters(T_vec)
+			self.partition_dist_array()
+			
 			s = self.sample(**pars)
 			
 			self.M  += s

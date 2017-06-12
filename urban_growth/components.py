@@ -40,10 +40,10 @@ def linear_components(m, alpha, gamma, use_grad = False, component = None):
 	# f = distance_feature(m, gamma, component)
 	if use_grad:
 		f, df = m.distance_feature(gamma, component, deriv = True)
-		norm, dnorm = normalizer(gamma, deriv = True)
+		norm, dnorm = normalizer(gamma, extent = m.trunc, deriv = True)
 	else:
 		f = m.distance_feature(gamma, component, deriv = False)
-		norm = normalizer(gamma)
+		norm = normalizer(gamma, extent = m.trunc)
 	
 	# component itself
 	c = np.array([[alpha]]).T * f / np.array([[norm]]).T

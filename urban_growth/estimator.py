@@ -25,9 +25,9 @@ class estimator(settlement_model):
 			grad = np.nansum(self.geo * coef * grads, axis = (1, 2))
 
 		if normalized: 
-			ll = ll / np.isfinite(X).sum()
+			ll = ll / self.N_eff
 			if use_grad:
-				grad = grad / np.isfinite(X).sum()
+				grad = grad / self.N_eff
 		
 		if use_grad:
 			return ll, grad
@@ -50,7 +50,7 @@ class estimator(settlement_model):
 		ll = np.nansum(X*np.log(d)+(1-X)*np.log(1-d))
 
 		if normalized: 
-			ll = ll / np.isfinite(X).sum()
+			ll = ll / self.N_eff
 
 
 		if use_grad:
@@ -65,7 +65,7 @@ class estimator(settlement_model):
 			grads = np.concatenate((d_theta, d_pi))
 			grad  = np.nansum(pi * coef * grads, axis = (2, 3))
 			if normalized:
-				grad = grad / np.isfinite(X).sum()
+				grad = grad / self.N_eff
 			return ll, grad	
 		return ll
 

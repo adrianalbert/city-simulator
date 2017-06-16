@@ -85,68 +85,9 @@ class settlement_model:
 
 		self.types = arr
 
-	def partition_dist_array(self):
-		
-		def f(j):
-		    v = np.expand_dims(self.types[j], 1)
-		    v = np.expand_dims(v, 2)
-		    v = np.expand_dims(v, 3)
-		    return np.expand_dims((self.dist_array * v).sum(axis = 0), 0)
-
-		self.D = np.concatenate([f(j) for j in range(len(self.types))])
-
 ################################################################################
 # DISTANCE CALCULATIONS
 ################################################################################
-
-	# def make_dist_array_2(self, trunc):
-	# 	'''
-	# 	This is the batch method, and has been deprecated for grid-search purposes. 
-	# 	'''
-
-	# 	D = np.zeros((self.types.shape[0], trunc, self.M0.shape[0],self.M0.shape[1] ))
-
-	# 	type_indices = {i : np.concatenate(
-	# 	    [self.clusters[j] for j in self.clusters if self.types[i][j-1] == 1]) 
-	# 	                for i in range(self.types.shape[0])}
-
-	# 	for k in range(D.shape[0]):
-	# 	    ix = type_indices[k]
-	# 	    dists = distance.cdist(self.unsettled, ix, 'euclidean').astype(int)
-	# 	    for i in range(dists.shape[0]):
-	# 	        a = np.unique(dists[i], return_counts=True)
-	# 	        d = a[0][a[0] < trunc]
-	# 	        f = a[1][a[0] < trunc]
-	# 	        D[k, d, self.unsettled[i][0], self.unsettled[i][1]] = f
-		        
-	# 	self.D = D
-
-	def make_dist_array(self):
-
-		D = np.zeros((len(self.clusters), self.trunc, self.M0.shape[0],self.M0.shape[1])).astype(int)
-
-		for k in range(len(self.clusters)):
-
-		    M = np.zeros(self.M0.shape)
-
-		    for v in self.clusters[k+1]:
-		        M[v[0], v[1]] = 1.0
-
-		    A = distance_transform_edt(1 - M)
-		    B = (A < self.trunc) * (self.M0 == 0)
-
-		    ix = np.where(B == 1)
-		    ix_arr = np.array([ix[0], ix[1]]).T
-
-		    dists = distance.cdist(ix_arr, self.clusters[k+1], 'euclidean').astype(int)
-
-		    for i in range(dists.shape[0]):
-		        a = np.unique(dists[i], return_counts=True)
-		        d = a[0][a[0] < self.trunc]
-		        f = a[1][a[0] < self.trunc].astype(int)
-		        D[k, d, ix[0][i],ix[1][i]] = f
-
-		self.dist_array = D
 
 	def distance_feature(self, gamma, component = None, deriv = False):
 		t = self.D.shape[1]
@@ -176,4 +117,50 @@ class settlement_model:
 			return out, df
 		
 		return out
+
+	def make_dist_array(self):
+		self.a_list = sorted(set(self.areas.values()))
+		D  = np.zeros((len(self.a_list), self.trunc, self.M0.shape[0], self.M0.shape[1])).astype(int)
+
+		for j in range(len(self.a_list)):
+		    a = self.a_list[j]
+
+		    nonzero = np.concatenate([self.clusters[v] for v in self.clusters if self.areas[v] == a])
+
+		    M = np.zeros(self.M0.shape)
+		    M[nonzero[:,0], nonzero[:,1]] = 1
+
+		    A = distance_transform_edt(1 - M)
+
+		    B = (A < self.trunc) * (self.M0 == 0) * (self.geo > 0)
+
+
+		    ix_M = np.where(M == 1)
+		    ix_arr_M = np.array([ix_M[0], ix_M[1]]).T
+
+		    ix_B = np.where(B == 1)
+		    ix_arr_B = np.array([ix_B[0], ix_B[1]]).T
+
+		    dists = distance.cdist(ix_arr_B, ix_arr_M, 'euclidean').astype(int)
+
+		    # see if this is very expensive -- could reduce via nicer 
+		    for i in range(dists.shape[0]):
+		        a = np.unique(dists[i], return_counts=True)
+		        d = a[0][a[0] < self.trunc]
+		        f = a[1][a[0] < self.trunc].astype(int)
+		        D[j, d, ix_B[0][i],ix_B[1][i]] = f 
+		self.dist_array = D
+
+	def partition_clusters(self, T_vec):
+		'''
+		Only implementing 2 types for now. Result is one-hot array
+		'''
+		T = T_vec[0]
+
+		u = (np.array(self.a_list) < T) * 1
+		r = (np.array(self.a_list) >= T) * 1
+		self.types = np.concatenate((u[np.newaxis,], r[np.newaxis,]), axis = 0)
+
+	def partition_dist_array(self):
+		self.D = np.dot(self.dist_array.T, self.types.T).T
 

@@ -26,7 +26,7 @@ class settlement_model:
 		self.trunc = trunc
 		self.unit = unit
 
-		self.N_eff = (self.M0 == 0) * (self.geo > 0)
+		self.N_eff = np.sum((self.M0 == 0) * (self.geo > 0))
 		
 	def set_M0(self, M0 = None, **kwargs):
 		if M0 is not None:

@@ -14,7 +14,7 @@ class settlement_model:
 # INITIALIZATION
 ################################################################################
 
-	def __init__(self, M0 = None, geo = None, model = None, trunc = 50):
+	def __init__(self, M0 = None, geo = None, model = None, trunc = 50, unit = 1):
 		if M0 is not None:
 			self.set_M0(M0 = M0)
 		if geo is not None:
@@ -24,6 +24,7 @@ class settlement_model:
 		if model is not None:
 			self.set_model(model)
 		self.trunc = trunc
+		self.unit = unit
 		
 	def set_M0(self, M0 = None, **kwargs):
 		if M0 is not None:
@@ -149,6 +150,7 @@ class settlement_model:
 		        d = a[0][a[0] < self.trunc]
 		        f = a[1][a[0] < self.trunc].astype(int)
 		        D[j, d, ix_B[0][i],ix_B[1][i]] = f 
+		D = 1.0 * D / self.unit # unit adjustment, important if we need to compare between resolutions. 
 		self.dist_array = D
 
 	def partition_clusters(self, T_vec):

@@ -23,16 +23,22 @@ class simulator(settlement_model):
 		
 		for i in times:	
 			
+			if (self.M == 0).sum() == 0: # if matrix is full, no point in further iterations
+				break
+
 			self.update_morphology() # might want to move this somewhere else
 			self.make_dist_array()
 			self.partition_clusters(T_vec)
 			self.partition_dist_array()
 			
 			s = self.sample(**pars)
+			s[self.M > 0] = 1
 			
 			self.M  += s
-			
+						
 			if verbose:
 				print 'Step ' + str(i - 1) + ' completed'
-	
+
+		self.M = i + 1 - self.M
+		self.M[self.M == i + 1] = 0
 		return self.M

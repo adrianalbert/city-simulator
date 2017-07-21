@@ -7,38 +7,22 @@ class simulator(settlement_model):
 
 		settlement_model.__init__(self, **kwargs)
 
-	def sample(self, **pars):
-		'''
-		Forward step
-		'''
-		prob = density(self, self.model, **pars)
-		prob = prob * self.geo
-		rands = np.random.rand(*prob.shape)
-		new_mat = (rands < prob) * 1
-		return new_mat
+	
+	def sample(self, K, pars):
+		v_bin = np.vectorize(np.random.binomial)
 
-	def dynamics(self, T_vec, n_iters = 5, verbose = True, **pars):
+		p = np.ravel(self.settlement_rate(K, pars))
+		n = np.ravel((1 - np.ravel(self.M)) * self.N_pix)
+
+		samp = 1.0 * v_bin(n, p) / self.N_pix
+
+		return np.reshape(samp, self.M.shape)
+
+	def dynamics(self, K, pars, n_iters = 1):
 		
-		times = np.arange(2, n_iters + 2)
-		
-		for i in times:	
-			
-			if (self.M == 0).sum() == 0: # if matrix is full, no point in further iterations
-				break
+		for i in range(n_iters):
+			new = self.sample(K, pars)
+			self.M += new
+			self.partition_clusters() # update morphology
 
-			self.update_morphology() # might want to move this somewhere else
-			self.make_dist_array()
-			self.partition_clusters(T_vec)
-			self.partition_dist_array()
-			
-			s = self.sample(**pars)
-			s[self.M > 0] = 1
-			
-			self.M  += s
-						
-			if verbose:
-				print 'Step ' + str(i - 1) + ' completed'
-
-		self.M = i + 1 - self.M
-		self.M[self.M == i + 1] = 0
-		return self.M
+		return self.M 

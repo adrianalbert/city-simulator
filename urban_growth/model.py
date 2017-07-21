@@ -1,3 +1,7 @@
+################################################################################
+# INITIALIZATION
+################################################################################
+
 import numpy as np
 from skimage import morphology
 from scipy.spatial import distance
@@ -7,6 +11,9 @@ from itertools import product
 from urban_growth.utility import *
 from scipy.ndimage.morphology import distance_transform_edt
 from copy import deepcopy
+from scipy.special import expit
+from scipy.ndimage import convolve
+from scipy import special
 
 class settlement_model:
 	
@@ -14,19 +21,19 @@ class settlement_model:
 # INITIALIZATION
 ################################################################################
 
-	def __init__(self, M0 = None, geo = None, model = None, trunc = 50, unit = 1):
+	def __init__(self, M0 = None, geo = None,  N_pix = 100, sigma = 1, t = .5):
 		if M0 is not None:
 			self.set_M0(M0 = M0)
 		if geo is not None:
 			self.geo = geo
 		else:
 			self.geo = np.ones(self.M0.shape[0], self.M0.shape[1])
-		if model is not None:
-			self.set_model(model)
-		self.trunc = trunc
-		self.unit = unit
+		
+		self.N_pix = N_pix
+		self.sigma = sigma
+		self.t     = t
 
-		self.N_eff = np.sum((self.M0 == 0) * (self.geo > 0))
+		self.partition_clusters()
 		
 	def set_M0(self, M0 = None, **kwargs):
 		if M0 is not None:
@@ -35,136 +42,53 @@ class settlement_model:
 			self.M0 = random_mat(**kwargs)
 
 		self.M = self.M0.copy()
-		self.update_morphology()
-
+		
 	def get_M0(self):
 		return self.M0
 
-	def update_morphology(self):
-		# generate clusters
-		mask = morphology.label(self.M, connectivity = 1)
-		self.clusters = {i : np.array(np.where(mask == i)).T for i in np.unique(mask) if i > 0}
+	def partition_clusters(self):
+		self.C = gaussian_blur_partition(self.M, self.sigma, self.t)
 
-		# unsettled cells
-		a = np.where(self.M == 0)
-		self.unsettled = np.array([[a[0][i], a[1][i]] for i in range(len(a[0]))])
-
-		# get areas
-		self.areas = {i : self.clusters[i].shape[0] for i in self.clusters}
-	
-	def set_model(self, model):
-		self.model = model
-		
-################################################################################
-# PARTITIONING OF CLUSTER TYPES
-################################################################################
-	
-	def get_types(self):
-		return self.types
-
-	def partition_clusters(self, T_vec):
+	def settlement_rate(self, K, pars, use_grad = False):
 		'''
-		Stores the cluster types as a matrix of one-hot vectors. Update this 
-		to involve a summation over the dist_array.
+		Wasteful to compute the gradient information when we don't need it. 
+		Possible improvement needed for when we get to simulating. Should 
+		only be a 2x speedup though, so may not be worth the time. 
 		'''
-		areas = deepcopy(self.areas)
+		def f(i):
+		    alpha = pars['alpha'][i]
+		    gamma = pars['gamma'][i]
+		    beta  = pars['beta']
 
-		d_list = {len(T_vec) : areas}
+		    k   = K ** (-gamma)
+		    d_k = k * np.log(K)
 
-		i = 0
-		for t in T_vec:
-		    d_list[i] = {}
-		    for k in areas.keys():
-		        if areas[k] < t:
-		            d_list[i].update({k : areas[k]})
-		            areas.pop(k)
-		    i += 1
+		    denom   = k.sum()
+		    d_denom = d_k.sum()
 
-		arr = np.zeros((len(d_list), len(self.areas)))
+		    convd   = convolve(self.C[i], k, cval = self.C[i].mean())
+		    d_convd = convolve(self.C[i], d_k, cval = self.C[i].mean()) 
 
-		for d in d_list:
-		    for k in d_list[d]:
-		        arr[d, k - 1] = 1
+		    c_deriv = - alpha * (d_convd * denom - d_denom * convd) / (denom ** 2)
+		    a_deriv = convd / denom
 
-		self.types = arr
+		    return {'denom' : denom, 'convd' : convd, 'a_deriv' : a_deriv, 'c_deriv' : c_deriv}
 
-################################################################################
-# DISTANCE CALCULATIONS
-################################################################################
+		components = [f(i) for i in range(2)]
 
-	def distance_feature(self, gamma, component = None, deriv = False):
-		t = self.D.shape[1]
-		t = np.arange(1, t+1)
+		rate = expit(pars['beta'] + sum(
+		                        pars['alpha'][i] * components[i]['convd'] / components[i]['denom'] 
+		                        for i in range(2)
+		                        ))
 		
-		if component is None:
-			t = t[np.newaxis,:]
+		rate = rate * self.geo # compares well to self.settlement_rate(). 
 		
-		v = t ** (- 1.0 * np.array([gamma]).T) 
-		
-		v = np.expand_dims(v, axis = 2)
-		v = np.expand_dims(v, axis = 3)
+		a_derivs = np.array([components[i]['a_deriv'] for i in range(2)])
+		c_derivs = np.array([components[i]['c_deriv'] for i in range(2)])
+		b_deriv  = np.expand_dims(np.ones(self.M0.shape), 0)
+		grad     = np.concatenate((a_derivs, c_derivs, b_deriv)) * rate * (1 - rate)
 
-		t = np.expand_dims(t, axis = 2)
-		t = np.expand_dims(t, axis = 3)
-
-		if component is not None:
-			intermediate = self.D[component] * v
-			out = intermediate.sum(axis = 0)
-			if deriv:
-				df = - (intermediate * np.log(t)).sum(axis = 0)
+		if use_grad: 
+			return rate, grad
 		else:
-			out = (self.D * v).sum(axis = 1)
-			if deriv:
-				df = - (self.D * v * np.log(t)).sum(axis = 1)
-		if deriv:
-			return out, df
-		
-		return out
-
-	def make_dist_array(self):
-		self.a_list = sorted(set(self.areas.values()))
-		D  = np.zeros((len(self.a_list), self.trunc, self.M0.shape[0], self.M0.shape[1])).astype(int)
-
-		for j in range(len(self.a_list)):
-		    a = self.a_list[j]
-
-		    nonzero = np.concatenate([self.clusters[v] for v in self.clusters if self.areas[v] == a])
-
-		    M = np.zeros(self.M0.shape)
-		    M[nonzero[:,0], nonzero[:,1]] = 1
-
-		    A = distance_transform_edt(1 - M)
-
-		    B = (A < self.trunc) * (self.M0 == 0) * (self.geo > 0)
-
-
-		    ix_M = np.where(M == 1)
-		    ix_arr_M = np.array([ix_M[0], ix_M[1]]).T
-
-		    ix_B = np.where(B == 1)
-		    ix_arr_B = np.array([ix_B[0], ix_B[1]]).T
-
-		    dists = distance.cdist(ix_arr_B, ix_arr_M, 'euclidean').astype(int)
-
-		    # see if this is very expensive -- could reduce via nicer 
-		    for i in range(dists.shape[0]):
-		        a = np.unique(dists[i], return_counts=True)
-		        d = a[0][a[0] < self.trunc]
-		        f = a[1][a[0] < self.trunc].astype(int)
-		        D[j, d, ix_B[0][i],ix_B[1][i]] = f 
-		D = 1.0 * D / self.unit # unit adjustment, important if we need to compare between resolutions. 
-		self.dist_array = D
-
-	def partition_clusters(self, T_vec):
-		'''
-		Only implementing 2 types for now. Result is one-hot array
-		'''
-		T = T_vec[0]
-
-		u = (np.array(self.a_list) < T) * 1
-		r = (np.array(self.a_list) >= T) * 1
-		self.types = np.concatenate((u[np.newaxis,], r[np.newaxis,]), axis = 0)
-
-	def partition_dist_array(self):
-		self.D = np.dot(self.dist_array.T, self.types.T).T
-
+			return rate

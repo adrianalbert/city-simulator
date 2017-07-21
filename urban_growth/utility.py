@@ -2,6 +2,7 @@ import numpy as np
 from scipy.ndimage.filters import gaussian_filter
 from skimage import morphology
 from itertools import product
+from scipy.spatial import distance
 
 def random_mat(L, density = .5, blurred = True, blur = 3, central_city = True):
 	
@@ -42,4 +43,30 @@ def normalizer(gamma, extent = 50, deriv = False):
 		dnorm = - 4 * sum([np.sqrt(x + y) ** (-gamma) * np.log(np.sqrt(x + y)) for (x, y) in xy])
 		return norm, dnorm
 	return norm
+
+def distance_kernel(L, base_val = .5, unit = 1):
+    
+    M = np.zeros((2*L + 1, 2*L + 1))
+    ix_M = np.where(M > -1)
+    ix_arr_M = np.array([ix_M[0], ix_M[1]]).T / unit
+    dists = distance.cdist(ix_arr_M, np.array([[L, L]]))
+    M = dists.reshape(M.shape)
+    M[L, L] = base_val
+    return M
 	
+def gaussian_blur_partition(M, sigma, t):
+	m         = gaussian_filter(M, sigma)
+	C    = np.zeros((2, m.shape[0], m.shape[1]))
+	C[0] = (m < t)  * M  # rural
+	C[1] = (m >= t) * M # urban
+	return C
+
+def to_vec(pars):
+    return np.concatenate((pars['alpha'], pars['gamma'], np.array([pars['beta']])))
+
+def from_vec(pars_vec):
+    d = {'alpha' : pars_vec[0:2],
+         'gamma' : pars_vec[2:4],
+         'beta'  : pars_vec[4]}
+    return d
+    

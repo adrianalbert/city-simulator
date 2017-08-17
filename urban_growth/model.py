@@ -54,9 +54,6 @@ class settlement_model:
 		elif self.class_type == 'thresh':
 			self.C = threshold_partition(self.M, self.thresh)
 			
-			
-
-			
 	def settlement_rate(self, K, pars, use_grad = False):
 		'''
 		Wasteful to compute the gradient information when we do not need it. 

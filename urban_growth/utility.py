@@ -74,12 +74,8 @@ def threshold_partition(M, thresh):
 		else:
 			C[0][np.where(morph == lab)] = 1
 	
-	return C
+	return C * M
 			
-			
-
-
-
 def to_vec(pars):
 	return np.concatenate((pars['alpha'], pars['gamma'], np.array([pars['beta']])))
 

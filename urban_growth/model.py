@@ -21,7 +21,7 @@ class settlement_model:
 # INITIALIZATION
 ################################################################################
 
-	def __init__(self, M0 = None, geo = None,  N_pix = 100, sigma = 1, t = .5, class_type = 'blur', thresh = 10):
+	def __init__(self, M0 = None, geo = None, T = 10):
 		if M0 is not None:
 			self.set_M0(M0 = M0)
 		if geo is not None:
@@ -29,11 +29,7 @@ class settlement_model:
 		else:
 			self.geo = np.ones(self.M0.shape[0], self.M0.shape[1])
 		
-		self.N_pix = N_pix
-		self.sigma = sigma
-		self.t     = t
-		self.class_type = class_type
-		self.thresh = thresh
+		self.T = T
 		self.partition_clusters()
 		
 	def set_M0(self, M0 = None, **kwargs):
@@ -48,11 +44,8 @@ class settlement_model:
 		return self.M0
 
 	def partition_clusters(self):
-		if self.class_type == 'blur':
-			self.C = gaussian_blur_partition(self.M, self.sigma, self.t)
-		# the below is pseudocode
-		elif self.class_type == 'thresh':
-			self.C = threshold_partition(self.M, self.thresh)
+			
+		self.C = threshold_partition(self.M, self.T)
 			
 	def settlement_rate(self, K, pars, use_grad = False):
 		'''

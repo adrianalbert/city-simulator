@@ -8,27 +8,21 @@ class estimator(settlement_model):
 		settlement_model.__init__(self, **kwargs)
 
 	def log_likelihood(self, M1, K, pars, terms = False):
-
-		p = np.ravel(self.settlement_rate(K, pars))
-		n = np.ravel((1 - np.ravel(self.M0)) * self.N_pix)
-		k = np.ravel((M1 - self.M0) * self.N_pix)
-
-		def logbin(k, n, p):
-		    return k * np.log(p) + (n - k) * np.log(1 - p) + np.log(special.binom(n, k))
-
-		v_logbin = np.vectorize(logbin)
-		lik_terms = v_logbin(k, n, p)
 		
-		if terms:
-			return lik_terms.reshape(self.M.shape)
-		else:
-			return np.nansum(lik_terms)
+		p       =   self.settlement_rate(K = K, pars=pars, use_grad = False)
+		p[self.M0 == 1] = np.nan
+		lls           =   (((M1-self.M0)*np.log(p) + (1-M1)*np.log(1-p))) 
+		
+		return np.nanmean(lls)
 
 	def ll_obj(self, M1, K, pars):
 		
 		p, grad       =   self.settlement_rate(K = K, pars=pars, use_grad = True)
-		lls           =   self.N_pix*((M1-self.M0)*np.log(p) + (1-M1)*np.log(1-p))
-		grad_coefs    =   self.N_pix*((M1-self.M0)/p-(1-M1)/(1-p))
+
+		p[self.M0 == 1] = np.nan
+		# this expression doesn't factor in already maximally settled areas, right?
+		lls           =   (((M1-self.M0)*np.log(p) + (1-M1)*np.log(1-p))) 
+		grad_coefs    =   ((M1-self.M0)/p-(1-M1)/(1-p)) * (1 - self.M0)
 
 		grad = grad_coefs*grad
 
@@ -41,7 +35,7 @@ class estimator(settlement_model):
 		def f(pars): 			
 			pars = from_vec(pars)
 			ll, grad = self.ll_obj(M1, K, pars)	
-			print -ll, pars		
+	
 			if use_grad:
 				return -ll, -grad
 			else:
